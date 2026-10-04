@@ -7,7 +7,8 @@
 
 #include "core/AppManager.h"
 
-void setup() {
+void setup() 
+{
   Serial.begin(115200);
   Serial.println(BOARD_NAME);
 
@@ -24,4 +25,7 @@ void setup() {
   app_manager::begin();
 }
 
-void loop() { app_manager::loop(); }
+void loop() 
+{ 
+  app_manager::loop(); 
+}
