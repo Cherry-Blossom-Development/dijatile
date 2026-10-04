@@ -1,0 +1,7 @@
+{
+  "name": "Net",
+  "version": "0.1.0",
+  "description": "ESP-NOW messaging between devices: peer discovery beacons and per-app message routing.",
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}

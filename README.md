@@ -1,0 +1,201 @@
+# dijatile
+
+PlatformIO + VS Code project for two Waveshare ESP32-S3 boards, sharing one
+board-support library.
+
+| | ESP32-S3-Touch-LCD-1.46B | ESP32-S3-LCD-1.54 |
+|---|---|---|
+| Build flag | `BOARD_WS_146B` | `BOARD_WS_154` |
+| Display | 412×412 round, SPD2010, QSPI | 240×240 square, ST7789, SPI |
+| Touch | SPD2010 (I2C) | CST816 (Touch-LCD-1.54 only; the plain LCD-1.54 falls back to buttons) |
+| Speaker | PCM5101 I2S DAC | ES8311 codec + NS4150B amp |
+| Microphone | I2S MEMS mic, own I2S port | ES7210 + 2 mics, **shares** the speaker's I2S bus |
+| IMU | QMI8658 | QMI8658 |
+| Extras | TCA9554 IO expander, PCF85063 RTC | PLUS / BOOT buttons, charge detect |
+| microSD | SD_MMC 1-bit | SD_MMC 4-bit |
+
+Both boards use an ESP32-S3R8 (8 MB PSRAM) with 16 MB flash.
+
+## Setup
+
+1. Install VS Code and the **PlatformIO IDE** extension. Opening this folder
+   should prompt you for it.
+2. Open this folder. On the first build PlatformIO downloads the toolchain and
+   libraries, which takes a few minutes.
+3. Pick the board in the PlatformIO env switcher in the status bar (`146b` or
+   `154`), then Build / Upload / Monitor.
+
+From the command line: `pio run -e 154 -t upload -t monitor`.
+
+> **PlatformIO Core 6.2+ is required** (for the pioarduino platform). If a
+> different `pio` on your PATH is older, use VS Code's copy:
+> `~/.platformio/penv/bin/pio`.
+
+If upload can't find the board, hold **BOOT**, tap **RESET**, release BOOT,
+then upload again.
+
+## Using it
+
+The board boots into a launcher that lists every app and game. Everything
+works by touch; the buttons are a fallback for boards without a touchscreen.
+
+| Input | Launcher | Anywhere else |
+|---|---|---|
+| Swipe up / down | next / previous entry | up to the app |
+| Tap middle / above / below | open / previous / next | up to the app |
+| **Swipe right from the left edge** | — | **back to the launcher** (reserved) |
+| A (BOOT) click | next entry | up to the app |
+| A long press | — | back to the launcher (reserved) |
+| B (PWR) click | open | up to the app |
+| B held 3 s | power off (on battery) | power off (reserved) |
+| C (PLUS, 1.54 only) | previous entry | up to the app |
+
+Built in:
+
+| | |
+|---|---|
+| **Blank Game** (game) | Empty template with every input/network hook stubbed out. Copy it to start a new game. |
+| **Music** | Plays the audio files in the SD card root. Tap to pause, swipe left to skip, swipe up/down for volume. |
+| **Nearby** | Lists devices in ESP-NOW range and what they're running. Tap to ping them: they beep and flash in your color. |
+
+## Layout
+
+```
+platformio.ini            one env per board
+src/main.cpp              board + ESP-NOW bring-up, then the app manager
+src/core/
+  App.h                   App base class + REGISTER_APP
+  AppManager.cpp          frame loop, reserved buttons, ESP-NOW routing
+  Launcher.cpp            home screen
+  Ui.h                    text helpers
+src/games/                one file per game
+src/apps/                 one file per utility app
+lib/Net/                  ESP-NOW: peer discovery, per-app messages
+lib/Board/src/
+  BoardConfig.h           per-board pin maps, I2C addresses, IMU axis mapping
+  Board.h/.cpp            board::begin(), power latch
+  Buttons.h/.cpp          debounced click / long-press events
+  Touch.h/.cpp            tap / long-press / swipe / drag events, both controllers
+  touch/                  SPD2010 touch driver (1.46B); CST816 comes from SensorLib
+  Display.h/.cpp          Arduino_GFX panel + PSRAM canvas, backlight PWM
+  Imu.h/.cpp              QMI8658 (SensorLib)
+  Speaker.h/.cpp          non-blocking tone() on a background audio task
+  Microphone.h/.cpp       loudness level() or raw read()
+  AudioBus.h/.cpp         I2S ports per board; ES8311/ES7210 setup on the 1.54
+  IoExpander.h/.cpp       TCA9554 (1.46B: LCD/touch reset, SD CS)
+  codecs/                 ES8311 / ES7210 drivers (Espressif, Apache-2.0)
+```
+
+## Adding a game
+
+Drop a file into `src/games/`. Nothing else needs to change: it registers
+itself and appears in the launcher.
+
+```cpp
+#include "../core/App.h"
+#include "../core/Ui.h"
+
+class Reflex : public App {
+ public:
+  Reflex() : App("Reflex", AppKind::Game) {}   // no hardware access here
+
+  void begin() override { /* reset state */ }
+  void end() override {}
+
+  void onTouch(const TouchInput &in) override {
+    if (in.event == TouchEvent::Tap) board::speaker.tone(880, 80);   // in.x, in.y
+  }
+
+  void update(float dt) override {
+    Vec3 a;
+    board::imu.readAccel(a);                    // in g
+  }
+
+  void draw(Arduino_Canvas &g) override {       // the manager flushes after this
+    g.fillScreen(RGB565_BLACK);
+    ui::centered(g, "Ready?", Display::CY, ui::size(4), RGB565_WHITE);
+  }
+};
+
+REGISTER_APP(Reflex);
+```
+
+Touch events, in screen pixels:
+
+| Event | When |
+|---|---|
+| `Down`, `Move`, `Up` | finger lands, moves, lifts. Use these for dragging. |
+| `Tap` | short touch that didn't move |
+| `LongPress` | held still for 0.6 s (fires while the finger is still down) |
+| `Swipe` | quick flick; `in.dir` is `Left`/`Right`/`Up`/`Down` |
+
+For continuous control, poll `board::touch.pressed()`, `x()` and `y()` in
+`update()`. Handle `onButton` too if the game should also work on a 1.54
+without touch.
+
+Use `Display::WIDTH`, `Display::ROUND` and `ui::SCALE` instead of hard-coding
+sizes so the game works on both screens. If an app has to drive the audio
+pins itself (like Music does), return `true` from `exclusiveAudio()`.
+
+## Multi-device games (ESP-NOW)
+
+Every device starts ESP-NOW on channel 1 at boot. Nothing needs pairing, and
+each device broadcasts a beacon once a second with its name and the app it's
+running.
+
+In an app:
+
+```cpp
+struct __attribute__((packed)) Move { int8_t dx, dy; };
+constexpr uint8_t MSG_MOVE = 1;           // types are per-app; pick any numbers
+
+broadcast(MSG_MOVE, Move{1, 0});          // everyone running this app
+send(peerMac, MSG_MOVE, Move{1, 0});      // one device
+
+void onMessage(const net::Message &m) override {
+  Move mv;
+  if (m.type == MSG_MOVE && m.as(mv)) { /* m.from is the sender's MAC */ }
+}
+```
+
+- **Routing:** messages only reach the same app on other devices. The app id
+  is a hash of the app's name, so renaming a game changes its id.
+- **Peers:** `peersHere()` counts other devices in the same app.
+  `net::peers()` lists every nearby device with name, current app, RSSI and
+  when it was last seen. A peer drops off after 4 s of silence.
+- **Helpers:** `net::isLowerThan(mac)` picks a host without negotiating (lowest
+  MAC wins). `net::colorFor(mac)` gives each player a stable color.
+- **Limits:** payloads up to 240 bytes. Delivery isn't guaranteed (broadcasts
+  are never acknowledged), so send state on a timer, not one-off events, when
+  it matters. Handlers run on the main loop, so they can touch app state
+  directly.
+
+## Libraries
+
+- [GFX Library for Arduino](https://github.com/moononournation/Arduino_GFX): SPD2010 and ST7789 drivers, canvas
+- [SensorLib](https://github.com/lewisxhe/SensorLib) v0.3.4: QMI8658 (PCF85063 RTC is in there too). It's pinned because 0.5 changes the API.
+- [ESP32-audioI2S](https://github.com/schreibfaul1/ESP32-audioI2S): MP3/AAC/FLAC/WAV decoding from SD or HTTP
+- `ESP_I2S`, `SD_MMC`, `Wire`, ESP-NOW from Arduino-ESP32 3.3 (via [pioarduino](https://github.com/pioarduino/platform-espressif32))
+
+## Things to know
+
+- **Audio sample rate is 16 kHz.** On the 1.54 the speaker and mics share one
+  I2S bus, so they have to run at the same rate. The 1.46B uses 16 kHz too, so
+  the two boards behave the same.
+- **Use `Speaker` or ESP32-audioI2S, not both at once.** They drive the same
+  pins. Apps that use `Audio` set `exclusiveAudio()`, and on the 1.54 they call
+  `audio_bus::prepareExternalOutput()` first (see `src/apps/music.cpp`).
+- **IMU axis mapping hasn't been tested on hardware.** If the ball rolls the
+  wrong way, change `imu_axes` in `BoardConfig.h`.
+- **Power latch:** `board::begin()` drives the hold pin high, so on battery
+  the board stays on after you let go of PWR. Holding B for 3 s releases it.
+- **WiFi:** ESP-NOW keeps the radio in station mode on channel 1. Joining a
+  WiFi network would move it to that network's channel, so every device would
+  need to be on the same network.
+- **Touch orientation hasn't been tested on hardware.** If taps land in the
+  wrong place, change `touch_axes` in `BoardConfig.h`. Only one finger is
+  tracked.
+
+Pin maps come from Waveshare's wikis and reference code:
+[1.46B](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-1.46),
+[1.54](https://github.com/waveshareteam/ESP32-S3-Touch-LCD-1.54).

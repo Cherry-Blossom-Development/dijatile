@@ -1,0 +1,10 @@
+{
+  "name": "Board",
+  "version": "0.2.0",
+  "description": "Board support for Waveshare ESP32-S3 LCD boards (ESP32-S3-Touch-LCD-1.46B, ESP32-S3-LCD-1.54): power, display, IMU, speaker and microphone. Select the board with -DBOARD_WS_146B or -DBOARD_WS_154.",
+  "frameworks": "arduino",
+  "platforms": "espressif32",
+  "build": {
+    "srcFilter": ["+<*>", "+<codecs/*>", "+<touch/*>"]
+  }
+}
