@@ -54,6 +54,10 @@ using Handler = void (*)(const Message &msg, void *ctx);
 // All devices in a game must use the same channel.
 bool begin(uint8_t channel = 1);
 bool started();
+// Shuts ESP-NOW and WiFi down (before light sleep). resume() brings them back
+// on the channel begin() was given; peers are forgotten and re-learned.
+void end();
+bool resume();
 
 // Stable 16-bit id for an app, derived from its name.
 uint16_t appIdFor(const char *name);

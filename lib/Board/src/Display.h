@@ -29,9 +29,15 @@ class Display {
   Arduino_Canvas *gfx() { return canvas_; }
   void flush() { canvas_->flush(); }
   void setBrightness(uint8_t percent);
+  // Backlight off / back to the last brightness. The panel itself stays
+  // powered: on the 1.46B the display chip is also the touch controller, so
+  // putting it to sleep would kill touch.
+  void sleep();
+  void wake();
 
  private:
   Arduino_DataBus *bus_ = nullptr;
   Arduino_GFX *panel_ = nullptr;
   Arduino_Canvas *canvas_ = nullptr;
+  uint8_t brightness_ = 0;
 };

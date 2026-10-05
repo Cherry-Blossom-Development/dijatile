@@ -43,6 +43,7 @@ bool isStarted = false;
 uint8_t mac[6];
 char name[16];
 uint16_t currentApp = 0;
+uint8_t activeChannel = 1;
 uint32_t lastBeacon = 0;
 std::vector<Peer> peerList;
 
@@ -122,6 +123,7 @@ void sendBeacon() {
 
 bool begin(uint8_t channel) {
   if (isStarted) return true;
+  activeChannel = channel;
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
   esp_wifi_set_ps(WIFI_PS_NONE);  // lower latency at some power cost
@@ -133,7 +135,7 @@ bool begin(uint8_t channel) {
     log_e("ESP-NOW init failed");
     return false;
   }
-  rxQueue = xQueueCreate(16, sizeof(Packet));
+  if (!rxQueue) rxQueue = xQueueCreate(16, sizeof(Packet));
   esp_now_register_recv_cb(onReceive);
   isStarted = true;
   log_i("ESP-NOW up on channel %u as %s", channel, name);
@@ -141,6 +143,19 @@ bool begin(uint8_t channel) {
 }
 
 bool started() { return isStarted; }
+
+void end() {
+  if (!isStarted) return;
+  esp_now_deinit();
+  WiFi.mode(WIFI_OFF);
+  isStarted = false;
+  peerList.clear();
+}
+
+bool resume() {
+  lastBeacon = 0;
+  return begin(activeChannel);
+}
 
 uint16_t appIdFor(const char *s) {
   // FNV-1a folded to 16 bits; 0 is reserved for system traffic.

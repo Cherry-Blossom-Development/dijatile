@@ -1,6 +1,7 @@
 #include "Imu.h"
 
 #include <Wire.h>
+#include <math.h>
 
 #include "BoardConfig.h"
 
@@ -18,14 +19,35 @@ bool Imu::begin() {
   return true;
 }
 
+namespace {
+constexpr float MOTION_G = 0.08f;       // change from the slow reference that counts as movement
+constexpr float REFERENCE_ALPHA = 0.05f;  // how fast the reference follows
+}  // namespace
+
+void Imu::noteSample(const Vec3 &a) {
+  if (!haveRef_) {
+    ref_ = a;
+    haveRef_ = true;
+    return;
+  }
+  float dx = a.x - ref_.x, dy = a.y - ref_.y, dz = a.z - ref_.z;
+  if (sqrtf(dx * dx + dy * dy + dz * dz) > MOTION_G) lastMotionMs_ = millis();
+  ref_.x += dx * REFERENCE_ALPHA;
+  ref_.y += dy * REFERENCE_ALPHA;
+  ref_.z += dz * REFERENCE_ALPHA;
+}
+
 bool Imu::read(Vec3 &accel, Vec3 &gyro) {
   if (!qmi_.getDataReady()) return false;
   qmi_.getAccelerometer(accel.x, accel.y, accel.z);
   qmi_.getGyroscope(gyro.x, gyro.y, gyro.z);
+  noteSample(accel);
   return true;
 }
 
 bool Imu::readAccel(Vec3 &accel) {
   if (!qmi_.getDataReady()) return false;
-  return qmi_.getAccelerometer(accel.x, accel.y, accel.z);
+  if (!qmi_.getAccelerometer(accel.x, accel.y, accel.z)) return false;
+  noteSample(accel);
+  return true;
 }

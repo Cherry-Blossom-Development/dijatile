@@ -46,5 +46,13 @@ bool begin();
 // does nothing visible.
 void powerOff();
 
+enum class WakeReason : uint8_t { Button, Touch, Motion };
+
+// Blanks the screen and light-sleeps until a button press, a touch, or real
+// movement (tilting or carrying the board; vibration is ignored). Blocks until
+// then, restores the backlight, and returns what woke it. Stop audio and
+// ESP-NOW first: neither survives light sleep.
+WakeReason lightSleep();
+
 
 }  // namespace board

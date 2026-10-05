@@ -34,5 +34,10 @@ bool Display::begin(uint8_t brightnessPercent) {
 
 void Display::setBrightness(uint8_t percent) {
   if (percent > 100) percent = 100;
+  brightness_ = percent;
   ledcWrite(pins::LCD_BL, (uint32_t)percent * ((1 << BL_PWM_BITS) - 1) / 100);
 }
+
+void Display::sleep() { ledcWrite(pins::LCD_BL, 0); }
+
+void Display::wake() { setBrightness(brightness_); }
