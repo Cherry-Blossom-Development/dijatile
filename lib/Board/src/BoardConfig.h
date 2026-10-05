@@ -149,12 +149,12 @@ constexpr uint8_t CST816_TOUCH = 0x15;
 namespace imu_axes {
 #if defined(BOARD_WS_146B)
 // Checked on hardware 2026-10-03: both axes were reversed from the first guess.
-constexpr bool SWAP_XY = false;
-constexpr float X_SIGN = 1.0f;
-constexpr float Y_SIGN = -1.0f;
+constexpr bool SWAP_XY = true;
+constexpr float X_SIGN = -1.0f;
+constexpr float Y_SIGN = 1.0f;
 #else
 constexpr bool SWAP_XY = false;
-constexpr float X_SIGN = -1.0f;
+constexpr float X_SIGN = 1.0f;
 constexpr float Y_SIGN = 1.0f;
 #endif
 }  // namespace imu_axes
