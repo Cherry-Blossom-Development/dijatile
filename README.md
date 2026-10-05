@@ -22,10 +22,10 @@ Both boards use an ESP32-S3R8 (8 MB PSRAM) with 16 MB flash.
    should prompt you for it.
 2. Open this folder. On the first build PlatformIO downloads the toolchain and
    libraries, which takes a few minutes.
-3. Pick the board in the PlatformIO env switcher in the status bar (`146b` or
-   `154`), then Build / Upload / Monitor.
+3. Pick the board in the PlatformIO env switcher in the status bar (`TheRoundOne` or
+   `TheSquareOne`), then Build / Upload / Monitor.
 
-From the command line: `pio run -e 154 -t upload -t monitor`.
+From the command line: `pio run -e TheSquareOne -t upload -t monitor`.
 
 > **PlatformIO Core 6.2+ is required** (for the pioarduino platform). If a
 > different `pio` on your PATH is older, use VS Code's copy:
