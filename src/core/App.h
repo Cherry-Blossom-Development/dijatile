@@ -18,6 +18,8 @@
 //   swipe right starting at the left edge -> back to the launcher
 //   A long-press                          -> back to the launcher
 //   B held 3 s                            -> power off (on battery)
+//   touch starting at the right edge      -> volume slider (not while an app
+//                                            has exclusiveAudio)
 
 #include <Arduino_GFX_Library.h>
 #include <Board.h>

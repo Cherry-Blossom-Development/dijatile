@@ -19,7 +19,6 @@ void setup()
   if (!net::begin()) Serial.println("ESP-NOW init failed");
   Serial.printf("I am %s\n", net::myName());
 
-  board::speaker.setVolume(0.6f);
   // Boots into the launcher. To make one app the home screen instead (skipping
   // the launcher entirely), pass it here: app_registry::byName("Blank Game").
   app_manager::begin();

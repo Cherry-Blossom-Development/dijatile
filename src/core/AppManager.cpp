@@ -1,5 +1,7 @@
 #include "AppManager.h"
 
+#include <Preferences.h>
+
 #include "Launcher.h"
 #include "Ui.h"
 
@@ -10,6 +12,11 @@ constexpr uint32_t MIN_FRAME_US = 16000;  // cap at ~60 fps
 constexpr uint32_t POWER_OFF_HOLD_MS = 3000;
 // No touch, button or (for apps that read the IMU) movement for this long
 // blanks the screen and light-sleeps until the user comes back.
+// A touch that starts this close to the right edge drags the volume slider.
+constexpr int16_t VOLUME_EDGE = Display::WIDTH - 80 * ui::SCALE;
+constexpr int16_t VOLUME_BAR_H = 120 * ui::SCALE;
+constexpr uint32_t VOLUME_OVERLAY_MS = 1500;
+constexpr int DEFAULT_VOLUME = 8;
 constexpr uint32_t IDLE_SLEEP_MS = 5 * 60 * 1000;
 // A swipe that starts this close to the left edge means "go home".
 constexpr int16_t HOME_EDGE = Display::WIDTH * 0.15f;
@@ -21,6 +28,9 @@ App *pending = nullptr;
 bool switchPending = false;
 uint32_t lastFrameUs = 0;
 uint32_t lastActivityMs = 0;
+int volumeLevel = DEFAULT_VOLUME;
+uint32_t overlayUntilMs = 0;
+bool volumeTouch = false;  // the current touch belongs to the volume slider
 
 void startAudio() {
   board::speaker.begin();
@@ -30,6 +40,58 @@ void startAudio() {
 void stopAudio() {
   board::speaker.end();
   board::mic.end();
+}
+
+void applyVolume(int level) {
+  volumeLevel = constrain(level, 0, VOLUME_MAX);
+  // Squared so the low steps are usable and the top steps aren't all alike.
+  board::speaker.setVolume(volumeLevel * volumeLevel / float(VOLUME_MAX * VOLUME_MAX));
+}
+
+void saveVolume() {
+  Preferences prefs;
+  if (!prefs.begin("dijatile", false)) return;
+  prefs.putUChar("volume", volumeLevel);
+  prefs.end();
+}
+
+void loadVolume() {
+  Preferences prefs;
+  int level = DEFAULT_VOLUME;
+  if (prefs.begin("dijatile", true)) {
+    level = prefs.getUChar("volume", DEFAULT_VOLUME);
+    prefs.end();
+  }
+  applyVolume(level);
+}
+
+void showVolumeOverlay() { overlayUntilMs = millis() + VOLUME_OVERLAY_MS; }
+
+void dragVolume(int16_t y) {
+  int top = Display::CY - VOLUME_BAR_H / 2;
+  int level = lroundf((top + VOLUME_BAR_H - y) * (float)VOLUME_MAX / VOLUME_BAR_H);
+  if (level != volumeLevel) applyVolume(level);
+  showVolumeOverlay();
+}
+
+void drawVolumeOverlay(Arduino_Canvas &g) {
+  if ((int32_t)(millis() - overlayUntilMs) >= 0) return;
+  const float S = ui::SCALE;
+  const int16_t barW = max(8, (int)(16 * S));
+  const int16_t cx = Display::WIDTH - 52 * S;
+  const int16_t top = Display::CY - VOLUME_BAR_H / 2, bottom = top + VOLUME_BAR_H;
+  g.fillRoundRect(cx - barW / 2 - 8 * S, top - 30 * S, barW + 16 * S, VOLUME_BAR_H + 44 * S,
+                  8 * S, g.color565(24, 24, 24));
+  g.fillRect(cx - barW / 2, top, barW, VOLUME_BAR_H, g.color565(70, 70, 70));
+  int16_t h = VOLUME_BAR_H * volumeLevel / VOLUME_MAX;
+  g.fillRect(cx - barW / 2, bottom - h, barW, h, RGB565_GREEN);
+  char num[4];
+  snprintf(num, sizeof(num), "%d", volumeLevel);
+  uint8_t size = ui::size(2);
+  g.setTextSize(size);
+  g.setTextColor(RGB565_WHITE);
+  g.setCursor(cx - strlen(num) * 3 * size, top - 16 * S - 4 * size);
+  g.print(num);
 }
 
 void activate(App *next) {
@@ -57,6 +119,16 @@ void handleTouch() {
   TouchInput in;
   while (board::touch.next(in)) {
     lastActivityMs = millis();
+    if (in.event == TouchEvent::Down) volumeTouch = in.x >= VOLUME_EDGE && !active->exclusiveAudio();
+    if (volumeTouch) {
+      // Swallow the whole touch, including the Tap/Swipe that follows the lift.
+      if (in.event == TouchEvent::Down || in.event == TouchEvent::Move) {
+        dragVolume(in.y);
+      } else if (in.event == TouchEvent::Up) {
+        setVolume(volumeLevel);  // saves and beeps at the chosen level
+      }
+      continue;
+    }
     if (isHomeGesture(in)) {
       if (active != home) open(nullptr);
       continue;
@@ -143,6 +215,7 @@ void sleepNow() {
 
 void begin(App *homeApp) {
   if (homeApp) home = homeApp;
+  loadVolume();
   startAudio();
   activate(home);
   lastFrameUs = micros();
@@ -155,6 +228,14 @@ void open(App *app) {
 }
 
 App *current() { return active; }
+
+int volume() { return volumeLevel; }
+
+void setVolume(int level, bool beep) {
+  applyVolume(level);
+  saveVolume();
+  if (beep) board::speaker.tone(1000, 80, 0.6f);
+}
 
 void loop() {
   uint32_t now = micros();
@@ -178,6 +259,7 @@ void loop() {
 
   active->update(dt);
   active->draw(*board::display.gfx());
+  drawVolumeOverlay(*board::display.gfx());
   board::display.flush();
 
   if (switchPending) {

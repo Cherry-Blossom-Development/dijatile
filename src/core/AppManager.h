@@ -14,4 +14,11 @@ void loop();
 void open(App *app);
 App *current();
 
+// Master volume for board::speaker (tones and game sound effects), in steps
+// 0..VOLUME_MAX, saved across reboots. Music keeps its own volume. Beeps at
+// the new level when beep is true.
+constexpr int VOLUME_MAX = 10;
+int volume();
+void setVolume(int level, bool beep = true);
+
 }  // namespace app_manager
