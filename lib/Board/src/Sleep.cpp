@@ -15,6 +15,9 @@ namespace board {
 
 namespace {
 constexpr uint32_t MOTION_CHECK_MS = 150;
+// Timer period when touch has to be polled over I2C (see below). Short enough
+// to catch a quick tap.
+constexpr uint32_t TOUCH_POLL_MS = 40;
 // Distance from the resting reading, in g. A 15 degree tilt is ~0.26 g;
 // table bumps and vibration average out in the sampling below and don't last
 // across checks.
@@ -56,7 +59,7 @@ int buttonPins(int (&pins_out)[4]) {
 WakeReason lightSleep() {
   int buttons[4];
   int nButtons = buttonPins(buttons);
-  const int touchPin = touch.available() ? pins::TOUCH_INT : -1;
+  int touchPin = touch.available() ? pins::TOUCH_INT : -1;
 
   // Wake pins fire on low level, so a button still held would wake us at once.
   uint32_t t0 = millis();
@@ -71,16 +74,28 @@ WakeReason lightSleep() {
   Vec3 rest;
   bool haveRest = sampleAccel(rest);
 
+  // A level wake on INT only works if INT idles high. The SPD2010 can leave
+  // it low with nothing touching, which would wake us instantly, so in that
+  // case ask the controller over I2C on each timer wake instead.
+  bool pollTouch = false;
+  if (touchPin >= 0) {
+    pinMode(touchPin, INPUT_PULLUP);
+    if (digitalRead(touchPin) == LOW) {
+      Serial.println("[sleep] touch INT idles low; polling touch instead");
+      pollTouch = true;
+    }
+  }
+
   for (int i = 0; i < nButtons; i++) {
     pinMode(buttons[i], INPUT_PULLUP);
     gpio_wakeup_enable((gpio_num_t)buttons[i], GPIO_INTR_LOW_LEVEL);
   }
-  if (touchPin >= 0) {
-    pinMode(touchPin, INPUT_PULLUP);
+  if (touchPin >= 0 && !pollTouch) {
     gpio_wakeup_enable((gpio_num_t)touchPin, GPIO_INTR_LOW_LEVEL);
   }
   esp_sleep_enable_gpio_wakeup();
-  esp_sleep_enable_timer_wakeup((uint64_t)MOTION_CHECK_MS * 1000);
+  esp_sleep_enable_timer_wakeup((uint64_t)(pollTouch ? TOUCH_POLL_MS : MOTION_CHECK_MS) * 1000);
+  uint32_t lastMotionCheck = millis();
 
   WakeReason reason = WakeReason::Button;
   int hits = 0;
@@ -88,12 +103,45 @@ WakeReason lightSleep() {
     Serial.flush();
     esp_light_sleep_start();
     switch (esp_sleep_get_wakeup_cause()) {
-      case ESP_SLEEP_WAKEUP_GPIO:
-        reason = (touchPin >= 0 && digitalRead(touchPin) == LOW) ? WakeReason::Touch
-                                                                : WakeReason::Button;
-        asleep = false;
+      case ESP_SLEEP_WAKEUP_GPIO: {
+        bool buttonDown = false;
+        for (int i = 0; i < nButtons; i++) buttonDown |= digitalRead(buttons[i]) == LOW;
+        if (buttonDown) {
+          reason = WakeReason::Button;
+          asleep = false;
+        } else if (touchPin >= 0 && !pollTouch && digitalRead(touchPin) == LOW) {
+          // INT can drop with no finger on the glass (the SPD2010 does this a
+          // few hundred ms after we stop servicing it), so only believe it if
+          // the controller reports a touch.
+          bool real = false;
+          for (int i = 0; i < 8 && !real; i++) {
+            touch.poll();
+            real = touch.pressed();
+            if (!real) delay(5);
+          }
+          if (real) {
+            reason = WakeReason::Touch;
+            asleep = false;
+          } else {
+            Serial.println("[sleep] spurious touch INT; polling touch instead");
+            gpio_wakeup_disable((gpio_num_t)touchPin);
+            pollTouch = true;
+            esp_sleep_enable_timer_wakeup((uint64_t)TOUCH_POLL_MS * 1000);
+          }
+        }
         break;
+      }
       case ESP_SLEEP_WAKEUP_TIMER: {
+        if (pollTouch) {
+          touch.poll();
+          if (touch.pressed()) {
+            reason = WakeReason::Touch;
+            asleep = false;
+            break;
+          }
+          if (millis() - lastMotionCheck < MOTION_CHECK_MS) break;
+          lastMotionCheck = millis();
+        }
         Vec3 a;
         if (!haveRest || !sampleAccel(a)) {
           haveRest = sampleAccel(rest);
@@ -114,7 +162,7 @@ WakeReason lightSleep() {
 
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   for (int i = 0; i < nButtons; i++) gpio_wakeup_disable((gpio_num_t)buttons[i]);
-  if (touchPin >= 0) gpio_wakeup_disable((gpio_num_t)touchPin);
+  if (touchPin >= 0) gpio_wakeup_disable((gpio_num_t)touchPin);  // no-op if already off
   imu.raw().enableGyroscope();
   display.wake();
   return reason;

@@ -113,8 +113,9 @@ void sleepNow() {
     board::touch.poll();
     delay(5);
   }
+  uint32_t sleptAt = millis();
   board::WakeReason why = board::lightSleep();
-  Serial.printf("[wake] %s\n", why == board::WakeReason::Motion  ? "motion"
+  Serial.printf("[wake] after %lu ms: %s\n", (unsigned long)(millis() - sleptAt), why == board::WakeReason::Motion  ? "motion"
                                : why == board::WakeReason::Touch ? "touch"
                                                           : "button");
   net::resume();
