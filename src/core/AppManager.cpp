@@ -119,7 +119,8 @@ void handleTouch() {
   TouchInput in;
   while (board::touch.next(in)) {
     lastActivityMs = millis();
-    if (in.event == TouchEvent::Down) volumeTouch = in.x >= VOLUME_EDGE && !active->exclusiveAudio();
+    if (in.event == TouchEvent::Down) volumeTouch =
+          in.x >= VOLUME_EDGE && !active->exclusiveAudio() && !active->ownsRightEdge();
     if (volumeTouch) {
       // Swallow the whole touch, including the Tap/Swipe that follows the lift.
       if (in.event == TouchEvent::Down || in.event == TouchEvent::Move) {

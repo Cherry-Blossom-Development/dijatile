@@ -13,7 +13,7 @@ bool Speaker::begin() {
   if (!i2s_) return false;
   queue_ = xQueueCreate(8, sizeof(ToneReq));
   running_ = true;
-  xTaskCreatePinnedToCore(taskEntry, "speaker", 4096, this, 5, &task_, 0);
+  xTaskCreatePinnedToCore(taskEntry, "speaker", 8192, this, 5, &task_, 0);
   return true;
 }
 
@@ -33,6 +33,16 @@ void Speaker::tone(float freqHz, uint16_t durationMs, float volume, bool decay) 
   xQueueSend(queue_, &req, 0);  // drop if full rather than block the caller
 }
 
+void Speaker::setSynth(SynthFn fn, void *ctx) {
+  synthCtx_ = ctx;
+  synth_ = fn;
+}
+
+void Speaker::clearSynth() {
+  synth_ = nullptr;
+  vTaskDelay(pdMS_TO_TICKS(25));  // longer than one chunk, so fn is no longer running
+}
+
 void Speaker::stop() {
   if (!queue_) return;
   xQueueReset(queue_);
@@ -47,6 +57,7 @@ void Speaker::taskEntry(void *self) {
 
 void Speaker::run() {
   int16_t buf[FRAMES_PER_CHUNK * 2];
+  float synthBuf[FRAMES_PER_CHUNK];
   ToneReq cur{};
   uint32_t pos = 0;
   float phase = 0;
@@ -61,6 +72,8 @@ void Speaker::run() {
       active = true;
       pos = 0;
     }
+    SynthFn synth = synth_;
+    if (synth) synth(synthBuf, FRAMES_PER_CHUNK, synthCtx_);
     for (size_t i = 0; i < FRAMES_PER_CHUNK; i++) {
       int16_t s = 0;
       if (active) {
@@ -76,6 +89,11 @@ void Speaker::run() {
           active = xQueueReceive(queue_, &cur, 0) == pdTRUE;
           pos = 0;
         }
+      }
+      if (synth) {
+        float y = synthBuf[i] * masterVolume_;
+        s = (int16_t)constrain((int32_t)s + (int32_t)(constrain(y, -1.0f, 1.0f) * 32000.0f),
+                               -32768, 32767);
       }
       buf[i * 2] = s;
       buf[i * 2 + 1] = s;

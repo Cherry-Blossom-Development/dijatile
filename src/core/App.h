@@ -19,7 +19,7 @@
 //   A long-press                          -> back to the launcher
 //   B held 3 s                            -> power off (on battery)
 //   touch starting at the right edge      -> volume slider (not while an app
-//                                            has exclusiveAudio)
+//                                            has exclusiveAudio or ownsRightEdge)
 
 #include <Arduino_GFX_Library.h>
 #include <Board.h>
@@ -42,6 +42,9 @@ class App {
   // Return true if the app drives the audio hardware itself (e.g. with
   // ESP32-audioI2S). board::speaker and board::mic are stopped while it runs.
   virtual bool exclusiveAudio() const { return false; }
+  // Return true if the app uses touches near the right edge itself, which
+  // turns off the app manager's volume slider there.
+  virtual bool ownsRightEdge() const { return false; }
 
   virtual void begin() {}
   virtual void end() {}

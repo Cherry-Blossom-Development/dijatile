@@ -57,6 +57,8 @@ Built in:
 | **Blank Game** (game) | Empty template with every input/network hook stubbed out. Copy it to start a new game. |
 | **PixelRoot Demo** (game) | A [PixelRoot32](https://github.com/PixelRoot32-Game-Engine/PixelRoot32-Game-Engine) engine scene. Tap or click to count. Start here for engine-based games. |
 | **Music** | Plays the audio files in the SD card root. Tap to pause, swipe left to skip, swipe up/down for volume. |
+| **Synth** | Monophonic synth. Touch the ring around the edge to play a note (C at the top, clockwise); slide to change notes. The middle has the controls: waveform, octave, detune, Moog-style filter cutoff / resonance / envelope, and release. |
+| **Tilt Theremin** | A tilt-controlled synth built on [Mozzi](https://sensorium.github.io/Mozzi/). Tilt left/right for pitch, top edge up for volume; drag the rim arcs for timbre, range, vibrato, scale (swipe the middle for echo and gate). See `src/specs/tilt-theremin-spec.md`. |
 | **Nearby** | Lists devices in ESP-NOW range and what they're running. Tap to ping them: they beep and flash in your color. |
 
 ## Layout

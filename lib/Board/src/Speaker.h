@@ -23,6 +23,14 @@ class Speaker {
   // flat one. volume is 0..1 and is scaled by the master volume.
   void tone(float freqHz, uint16_t durationMs, float volume = 1.0f, bool decay = false);
   void stop();
+
+  // Continuous synth source, mixed with tones. The audio task calls fn for
+  // each chunk (256 frames, ~16 ms) to fill `mono` with samples in -1..1; the
+  // master volume is applied afterwards. fn runs on the audio task: no
+  // blocking, no I2C/SPI/display. clearSynth() returns once fn has stopped.
+  using SynthFn = void (*)(float *mono, size_t frames, void *ctx);
+  void setSynth(SynthFn fn, void *ctx);
+  void clearSynth();
   void setVolume(float v) { masterVolume_ = v < 0 ? 0 : (v > 1 ? 1 : v); }
   float volume() const { return masterVolume_; }
 
@@ -41,5 +49,7 @@ class Speaker {
   TaskHandle_t task_ = nullptr;
   volatile bool running_ = false;
   volatile bool stop_ = false;
+  volatile SynthFn synth_ = nullptr;
+  void *synthCtx_ = nullptr;
   float masterVolume_ = 0.5f;
 };

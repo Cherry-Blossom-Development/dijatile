@@ -24,6 +24,23 @@ inline uint8_t size(float atFullScale) {
   return s < 1 ? 1 : s;
 }
 
+// Filled ring segment between radii r0 and r1 around the screen centre, from
+// angle a0 to a1 in degrees (clockwise from 3 o'clock, since y points down).
+inline void arcBand(Arduino_GFX &g, float r0, float r1, float a0, float a1, uint16_t color) {
+  constexpr float STEP = 4.0f;
+  constexpr float DEG = 57.29578f;
+  for (float a = a0; a < a1; a += STEP) {
+    float b = a + STEP + 0.6f < a1 ? a + STEP + 0.6f : a1;  // overlap slightly to hide seams
+    float ca = cosf(a / DEG), sa = sinf(a / DEG), cb = cosf(b / DEG), sb = sinf(b / DEG);
+    int16_t x0 = Display::CX + r0 * ca, y0 = Display::CY + r0 * sa;
+    int16_t x1 = Display::CX + r1 * ca, y1 = Display::CY + r1 * sa;
+    int16_t x2 = Display::CX + r1 * cb, y2 = Display::CY + r1 * sb;
+    int16_t x3 = Display::CX + r0 * cb, y3 = Display::CY + r0 * sb;
+    g.fillTriangle(x0, y0, x1, y1, x2, y2, color);
+    g.fillTriangle(x0, y0, x2, y2, x3, y3, color);
+  }
+}
+
 // A tappable rectangle centered on (cx, cy).
 struct Button {
   int16_t cx, cy, w, h;
