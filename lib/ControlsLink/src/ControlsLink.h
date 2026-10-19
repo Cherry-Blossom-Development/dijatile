@@ -6,8 +6,9 @@
 //   Controls -> display: INPUT messages, one per turn / press / release.
 //   display -> Controls: STATE messages, ~8 a second, saying what each control
 //                        is currently mapped to so the OLED can show it.
-// Either side can end it with UNPAIR, and each drops the pairing if the other
-// goes quiet for LINK_TIMEOUT_MS.
+// While paired the Controls tile also sends a HEARTBEAT, so the display tile
+// can tell when it has gone. Either side can end the pairing with UNPAIR, and
+// each drops it if the other goes quiet for LINK_TIMEOUT_MS.
 //
 // These ride on the display app's own app id (net::send(mac, appId, ...)), so
 // the app receives them through onMessage() like any of its own messages.
@@ -40,10 +41,12 @@ constexpr uint8_t MSG_PAIR_REPLY = 0x41;    // controls -> display
 constexpr uint8_t MSG_INPUT = 0x42;         // controls -> display
 constexpr uint8_t MSG_STATE = 0x43;         // display -> controls
 constexpr uint8_t MSG_UNPAIR = 0x44;        // either way
+constexpr uint8_t MSG_HEARTBEAT = 0x45;     // controls -> display, while paired
 
-constexpr uint32_t LINK_TIMEOUT_MS = 2000;
-constexpr uint32_t REQUEST_TIMEOUT_MS = 5000;
+constexpr uint32_t LINK_TIMEOUT_MS = 4000;
+constexpr uint32_t REQUEST_TIMEOUT_MS = 15000;  // time for a person to reach the other tile
 constexpr uint32_t STATE_INTERVAL_MS = 120;
+constexpr uint32_t HEARTBEAT_INTERVAL_MS = 400;
 
 struct __attribute__((packed)) EmptyMsg {
   uint8_t unused;

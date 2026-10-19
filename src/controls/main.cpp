@@ -32,11 +32,14 @@ uint16_t partnerAppId = 0;
 uint32_t stateSinceMs = 0;
 uint32_t lastLinkMs = 0;
 uint32_t bothHeldSinceMs = 0;
+bool unpairChordArmed = false;  // only after A and B have both been up since pairing
 StateMsg shown;  // what the display tile last said each control does
 bool haveShown = false;
 bool dirty = true;
+uint32_t lastHeartbeatMs = 0;
+uint32_t sentOk = 0, sentFail = 0;  // INPUT messages to the display tile
 
-constexpr uint32_t INCOMING_TIMEOUT_MS = 8000;
+constexpr uint32_t INCOMING_TIMEOUT_MS = 12000;
 constexpr uint32_t UNPAIR_HOLD_MS = 1500;
 constexpr uint32_t REDRAW_MS = 100;
 
@@ -50,6 +53,7 @@ void peerName(const uint8_t *mac, char (&out)[16]) {
 }
 
 void unpair(bool notify) {
+  Serial.printf("[pair] unpaired (%s)\n", notify ? "by us" : "other side or timeout");
   if (notify) net::send(partner, partnerAppId, MSG_UNPAIR, EmptyMsg{});
   state = State::Idle;
   haveShown = false;
@@ -57,10 +61,16 @@ void unpair(bool notify) {
 }
 
 void answer(bool yes) {
-  net::send(partner, partnerAppId, MSG_PAIR_REPLY, ReplyMsg{(uint8_t)yes});
+  bool sent = net::send(partner, partnerAppId, MSG_PAIR_REPLY, ReplyMsg{(uint8_t)yes});
+  Serial.printf("[pair] reply %s to %s (app %04X): send %s\n", yes ? "yes" : "no", partnerName,
+                partnerAppId, sent ? "ok" : "FAILED");
   if (yes) {
     state = State::Paired;
     lastLinkMs = millis();
+    lastHeartbeatMs = 0;
+    unpairChordArmed = false;
+    bothHeldSinceMs = 0;
+    sentOk = sentFail = 0;
     haveShown = false;
   } else {
     state = State::Idle;
@@ -72,10 +82,18 @@ void onNet(const net::Message &msg, void *) {
   switch (msg.type) {
     case MSG_PAIR_REQUEST:
       if (net::kindOf(msg.from) == net::TileKind::Controls) break;  // only display tiles ask
-      if (state == State::Idle) {
+      if (state == State::Paired && same(msg.from, partner)) {
+        // The display tile asks again because it lost the pairing, not us:
+        // we already trust it, so just confirm.
+        partnerAppId = msg.appId;
+        net::send(partner, partnerAppId, MSG_PAIR_REPLY, ReplyMsg{1});
+        lastLinkMs = millis();
+        Serial.printf("[pair] re-pair request from %s: confirmed\n", partnerName);
+      } else if (state == State::Idle) {
         memcpy(partner, msg.from, 6);
         partnerAppId = msg.appId;
         peerName(msg.from, partnerName);
+        Serial.printf("[pair] request from %s (app %04X)\n", partnerName, msg.appId);
         state = State::Incoming;
         stateSinceMs = millis();
         dirty = true;
@@ -85,6 +103,7 @@ void onNet(const net::Message &msg, void *) {
       break;
     case MSG_STATE:
       if (state == State::Paired && same(msg.from, partner) && msg.as(shown)) {
+        if (!haveShown) Serial.printf("[pair] first state from display: %s\n", shown.title);
         shown.title[sizeof(shown.title) - 1] = 0;
         for (Slot &s : shown.slot) s.label[sizeof(s.label) - 1] = 0;
         haveShown = true;
@@ -150,7 +169,8 @@ void drawIncoming() {
 void drawPaired() {
   oled.setFont(u8g2_font_5x7_tf);
   char head[32];
-  snprintf(head, sizeof(head), "%s  %s", haveShown ? shown.title : "...", partnerName);
+  snprintf(head, sizeof(head), "%s %s %lu%s", haveShown ? shown.title : "...", partnerName,
+           (unsigned long)sentOk, sentFail ? "!" : "");
   oled.drawStr(0, 7, head);
   oled.drawHLine(0, 9, 128);
   for (int i = 0; i < SOURCE_COUNT; i++) {
@@ -201,7 +221,6 @@ void setup() {
 }
 
 void loop() {
-  uint32_t now = millis();
   inputs.poll();
   net::poll(onNet, nullptr);
 
@@ -212,23 +231,48 @@ void loop() {
       if (e.source == BTN_A && e.value == 1) answer(true);
       if (e.source == BTN_B && e.value == 1) answer(false);
     } else if (state == State::Paired) {
-      net::send(partner, partnerAppId, MSG_INPUT, InputMsg{e.source, e.value});
+      bool sent = net::send(partner, partnerAppId, MSG_INPUT, InputMsg{e.source, e.value});
+      (sent ? sentOk : sentFail)++;
+      Serial.printf("[input] %s %d -> %s\n", sourceTag(e.source), e.value, sent ? "sent" : "SEND FAILED");
     }
   }
 
+  // Read the clock only now: the pairing code above stamps times with millis(),
+  // and a stale "now" from before would make `now - stamp` wrap around to a huge
+  // number and fire every timeout at once.
+  uint32_t now = millis();
   if (state == State::Incoming && now - stateSinceMs > INCOMING_TIMEOUT_MS) answer(false);
   if (state == State::Paired) {
     if (now - lastLinkMs > LINK_TIMEOUT_MS) {
       unpair(false);
-    } else if (inputs.isDown(BTN_A) && inputs.isDown(BTN_B)) {
-      if (!bothHeldSinceMs) bothHeldSinceMs = now;
-      if (now - bothHeldSinceMs > UNPAIR_HOLD_MS) {
-        bothHeldSinceMs = 0;
-        unpair(true);
-      }
     } else {
-      bothHeldSinceMs = 0;
+      if (now - lastHeartbeatMs >= HEARTBEAT_INTERVAL_MS) {
+        lastHeartbeatMs = now;
+        net::send(partner, partnerAppId, MSG_HEARTBEAT, EmptyMsg{});
+      }
+      bool both = inputs.isDown(BTN_A) && inputs.isDown(BTN_B);
+      if (!inputs.isDown(BTN_A) && !inputs.isDown(BTN_B)) unpairChordArmed = true;
+      if (both && unpairChordArmed) {
+        if (!bothHeldSinceMs) bothHeldSinceMs = now;
+        if (now - bothHeldSinceMs > UNPAIR_HOLD_MS) {
+          bothHeldSinceMs = 0;
+          Serial.println("[pair] A+B held: unpairing");
+          unpair(true);
+        }
+      } else {
+        bothHeldSinceMs = 0;
+      }
     }
+  }
+
+  static uint32_t lastStatus = 0;
+  if (now - lastStatus >= 2000) {
+    lastStatus = now;
+    Serial.printf("[status] %s linkAge=%lums sentOk=%lu sentFail=%lu displayTiles=%u down[E1p=%d E2p=%d A=%d B=%d]\n",
+                  state == State::Idle ? "idle" : state == State::Incoming ? "incoming" : "PAIRED",
+                  state == State::Paired ? (unsigned long)(now - lastLinkMs) : 0UL, (unsigned long)sentOk,
+                  (unsigned long)sentFail, (unsigned)net::peers().size(), inputs.isDown(ENC1_PUSH),
+                  inputs.isDown(ENC2_PUSH), inputs.isDown(BTN_A), inputs.isDown(BTN_B));
   }
 
   static uint32_t lastDraw = 0;

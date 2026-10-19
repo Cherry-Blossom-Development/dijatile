@@ -14,6 +14,11 @@ void loop();
 void open(App *app);
 App *current();
 
+// Tell the app manager something happened that should keep the screen awake
+// (it blanks and sleeps after a few idle minutes). Touches and buttons count
+// automatically; call this for input that arrives some other way.
+void noteActivity();
+
 // Master volume for board::speaker (tones and game sound effects), in steps
 // 0..VOLUME_MAX, saved across reboots. Music keeps its own volume. Beeps at
 // the new level when beep is true.

@@ -1,0 +1,21 @@
+; Copy this to platformio_local.ini (git-ignored) and fill in your ports.
+; With two tiles plugged in, PlatformIO can't guess which port is which, so
+; each env gets its own. Find them with:  pio device list
+; The ESP32 USB ports show up as "USB JTAG/serial debug unit"; the SER= value is
+; the chip's MAC, so you can tell the tiles apart (the Nearby app and the
+; serial monitor print each tile's name, dj-XXXX, made from the last two MAC bytes).
+;
+; Then:  pio run -e TheRoundOne -e TheControlsOne -t upload   flashes both,
+; each to its own port.
+
+[env:TheRoundOne]
+upload_port = /dev/cu.usbmodemXXXX
+monitor_port = /dev/cu.usbmodemXXXX
+
+[env:TheSquareOne]
+upload_port = /dev/cu.usbmodemXXXX
+monitor_port = /dev/cu.usbmodemXXXX
+
+[env:TheControlsOne]
+upload_port = /dev/cu.usbmodemXXXX
+monitor_port = /dev/cu.usbmodemXXXX

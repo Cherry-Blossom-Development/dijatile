@@ -36,6 +36,7 @@
 #include <math.h>
 
 #include "../core/App.h"
+#include "../core/AppManager.h"
 #include "../core/MozziVoice.h"
 #include "../core/Ui.h"
 #include "moog_ladder.h"
@@ -261,17 +262,23 @@ class Synth : public App {
 
   void onMessage(const net::Message &msg) override {
     using namespace controls_link;
+    Serial.printf("[synth] controls msg 0x%02X len %u\n", msg.type, (unsigned)msg.len);
     switch (msg.type) {
+      case MSG_HEARTBEAT:
+        if (link_ == Link::Paired && memcmp(msg.from, partner_, 6) == 0) lastHeardMs_ = millis();
+        break;
       case MSG_PAIR_REPLY: {
         ReplyMsg r;
         if (link_ != Link::Requesting || !msg.as(r) || memcmp(msg.from, partner_, 6) != 0) break;
         if (r.accept) {
           link_ = Link::Paired;
           lastStateMs_ = 0;
+          lastHeardMs_ = millis();
           setToast("Controls paired");
         } else {
           markDeclined(partner_);
           link_ = Link::None;
+          Serial.println("[synth] pairing declined by controls tile");
           setToast("Pairing declined");
         }
         break;
@@ -280,6 +287,9 @@ class Synth : public App {
         InputMsg in;
         if (link_ == Link::Paired && msg.as(in) && memcmp(msg.from, partner_, 6) == 0 &&
             in.source < SOURCE_COUNT) {
+          lastHeardMs_ = millis();
+          inputsSeen_++;
+          app_manager::noteActivity();  // playing from the controls tile keeps the screen awake
           handleInput(in.source, in.value);
         }
         break;
@@ -402,11 +412,13 @@ class Synth : public App {
     snprintf(partnerName_, sizeof(partnerName_), "%s", candName_);
     link_ = Link::Requesting;
     requestMs_ = millis();
+    Serial.printf("[synth] pair request sent to %s\n", partnerName_);
     send(partner_, controls_link::MSG_PAIR_REQUEST, controls_link::EmptyMsg{});
     setToast("Waiting for controls...");
   }
 
   void unlink(const char *why) {
+    Serial.printf("[synth] unlink: %s\n", why);
     link_ = Link::None;
     learn_ = UNMAPPED;
     if (noteHeldByControls_) {
@@ -418,15 +430,23 @@ class Synth : public App {
 
   void serviceLink(uint32_t now) {
     using namespace controls_link;
+    static uint32_t lastStatus = 0;
+    if (link_ != Link::None && now - lastStatus >= 2000) {
+      lastStatus = now;
+      Serial.printf("[synth] link=%s heardAge=%lums inputs=%lu\n",
+                    link_ == Link::Paired ? "PAIRED" : "requesting",
+                    (unsigned long)(now - lastHeardMs_), (unsigned long)inputsSeen_);
+    }
     if (modal_ && !partnerInRangeOrCand()) modal_ = false;
     if (learn_ != UNMAPPED && now - learnSinceMs_ > LEARN_TIMEOUT_MS) learn_ = UNMAPPED;
 
     if (link_ == Link::Requesting && now - requestMs_ > REQUEST_TIMEOUT_MS) {
       markDeclined(partner_);
       link_ = Link::None;
+      Serial.println("[synth] no answer to pair request");
       setToast("No answer");
     } else if (link_ == Link::Paired) {
-      if (!partnerInRange()) {
+      if (!partnerInRange() || now - lastHeardMs_ > LINK_TIMEOUT_MS) {
         unlink("Controls lost");
       } else if (now - lastStateMs_ >= STATE_INTERVAL_MS) {
         lastStateMs_ = now;
@@ -529,7 +549,7 @@ class Synth : public App {
   const char *linkLabel() const {
     static char buf[32];
     if (link_ == Link::Paired) {
-      snprintf(buf, sizeof(buf), "paired %s", partnerName_);
+      snprintf(buf, sizeof(buf), "paired %s %lu", partnerName_, (unsigned long)inputsSeen_);
       return buf;
     }
     if (link_ == Link::None) {
@@ -760,7 +780,8 @@ class Synth : public App {
   uint8_t cand_[6] = {};
   char candName_[16] = {};
   uint8_t declined_[6] = {};
-  uint32_t requestMs_ = 0, lastStateMs_ = 0, learnSinceMs_ = 0, toastUntilMs_ = 0;
+  uint32_t requestMs_ = 0, lastStateMs_ = 0, learnSinceMs_ = 0, toastUntilMs_ = 0, lastHeardMs_ = 0;
+  uint32_t inputsSeen_ = 0;
   char toast_[32] = {};
 };
 

@@ -235,6 +235,8 @@ void open(App *app) {
 
 App *current() { return active; }
 
+void noteActivity() { lastActivityMs = millis(); }
+
 int volume() { return volumeLevel; }
 
 void setVolume(int level, bool beep) {

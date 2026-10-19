@@ -194,11 +194,13 @@ Wiring (pins live in `src/controls/pins.h`):
 | OLED I2C | SDA 6, SCL 7, address 0x3C |
 | Buttons A / B | GPIO 20 / 21 |
 | Encoder 1 | SW 10, CLK 9, DT 8 |
-| Encoder 2 | SW 4, CLK 2, DT 5 |
+| Encoder 2 | SW 4, CLK 3, DT 5 |
 
-Switches go to ground (internal pull-ups). GPIO 2, 8 and 9 are the C3's
-strapping pins: fine as inputs, but a CLK contact held closed on GPIO 9 during
-reset boots the chip into download mode. If an encoder counts backwards, flip
+The board is a Seeed XIAO ESP32-C3, whose silkscreen "D" numbers differ from the
+GPIO numbers (D1 = GPIO 3, D2 = GPIO 4, ...; the map is in `pins.h`). Switches go
+to ground (internal pull-ups). GPIO 8 and 9 are the C3's strapping pins: fine as
+inputs, but a CLK contact held closed on GPIO 9 during reset boots the chip into
+download mode. If an encoder counts backwards, flip
 `ENC1_REVERSED` / `ENC2_REVERSED`.
 
 Pairing: open Synth with the controls tile in range and you're asked to pair; the

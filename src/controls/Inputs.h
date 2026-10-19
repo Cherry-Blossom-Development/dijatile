@@ -3,7 +3,10 @@
 // buttons, turned into a stream of events.
 //
 // The encoders are decoded in interrupts, so a fast spin isn't lost while the
-// OLED is redrawing. Buttons are polled and debounced.
+// OLED is redrawing. Buttons are polled and debounced. Each switch can be wired
+// either way round (to ground, or to 3.3 V with a pull-down): begin() looks at
+// the level each one rests at and treats the other level as "pressed", so keep
+// your hands off the buttons while the tile boots.
 
 #include <ControlsLink.h>
 #include <stdint.h>
@@ -32,6 +35,7 @@ class Inputs {
 
   bool down_[controls_link::SOURCE_COUNT] = {};
   bool raw_[SWITCHES] = {};
+  bool activeLow_[SWITCHES] = {true, true, true, true};  // see begin()
   uint32_t changedAt_[SWITCHES] = {};
   int32_t total_[2] = {};
 
