@@ -45,6 +45,10 @@ class App {
   // Return true if the app uses touches near the right edge itself, which
   // turns off the app manager's volume slider there.
   virtual bool ownsRightEdge() const { return false; }
+  // Which kinds of tile this app plays with. Messages from other kinds are
+  // dropped before they reach onMessage(). Most apps are for display tiles
+  // only; override to also accept a controls tile.
+  virtual bool acceptsKind(net::TileKind kind) const { return kind == net::TileKind::Display; }
 
   virtual void begin() {}
   virtual void end() {}

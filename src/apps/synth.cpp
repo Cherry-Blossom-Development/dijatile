@@ -11,6 +11,13 @@
 //           ENV     how far each note's envelope sweeps the cutoff open
 //   AMP     REL     release time after you let go
 //
+// Controls tile: when a Controls tile (encoders and buttons) is nearby you're
+// asked to pair with it. Its six inputs then drive the synth, and its OLED
+// shows what each one does. By default: knob 1 = cutoff, knob 2 = resonance,
+// knob presses = next waveform / detune step, button A = play the note
+// (hold), button B = next octave. To remap an input, long-press a row (or the
+// note name) on the screen, then turn or press the control you want for it.
+//
 // Sound comes from Mozzi through the shared engine (core/MozziEngine.cpp): the
 // oscillators and the amp envelope are Mozzi's, the filter is the Moog ladder
 // in moog_ladder.h.
@@ -24,6 +31,8 @@
 #include <tables/square_analogue512_int8.h>
 #include <tables/triangle2048_int8.h>
 
+#include <ControlsLink.h>
+#include <Preferences.h>
 #include <math.h>
 
 #include "../core/App.h"
@@ -183,6 +192,27 @@ static_assert((ROW_W / 2 + 4) * (ROW_W / 2 + 4) + (ROWS_H / 2 + 12 * S) * (ROWS_
 constexpr int DRAG_RING = -2;  // "control being dragged" values besides a row index
 constexpr int DRAG_NONE = -1;
 
+// What a Controls-tile input can drive: any row, or playing the note.
+constexpr int TARGET_NOTE = ROW_COUNT;
+constexpr int TARGET_COUNT = ROW_COUNT + 1;
+constexpr int8_t UNMAPPED = -1;
+
+constexpr uint32_t LEARN_TIMEOUT_MS = 10000;
+constexpr float KNOB_STEP = 0.025f;  // of a row's range per detent (40 detents end to end)
+constexpr float PRESS_STEP = 0.1f;   // a press on a smooth row
+
+const char *targetName(int t) { return t == TARGET_NOTE ? "NOTE" : ROWS[t].label; }
+
+// Controls-tile defaults, one per input (see controls_link::Source).
+constexpr int8_t DEFAULT_MAP[controls_link::SOURCE_COUNT] = {
+    ROW_CUTOFF,  // E1 turn
+    ROW_WAVE,    // E1 push
+    ROW_RESO,    // E2 turn
+    ROW_ENV,     // E2 push
+    TARGET_NOTE, // A
+    ROW_OCT,     // B
+};
+
 float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 
 }  // namespace
@@ -193,6 +223,9 @@ class Synth : public App {
 
   // The note ring runs along the right edge, so the volume slider stays out of the way.
   bool ownsRightEdge() const override { return true; }
+  bool acceptsKind(net::TileKind kind) const override {
+    return kind == net::TileKind::Display || kind == net::TileKind::Controls;
+  }
 
   void begin() override {
     drag_ = DRAG_NONE;
@@ -200,24 +233,96 @@ class Synth : public App {
     applyAll();
     voice_.reset();
     mozzi_engine::start(&voice_);
+
+    loadMap();
+    link_ = Link::None;
+    modal_ = false;
+    learn_ = UNMAPPED;
+    haveDeclined_ = false;
+    noteHeldByControls_ = false;
+    toast_[0] = 0;
+    // A controls tile already in range: offer to pair with it.
+    if (const net::Peer *peer = bestControls()) offerPairing(*peer);
   }
 
   void end() override {
+    if (link_ != Link::None) send(partner_, controls_link::MSG_UNPAIR, controls_link::EmptyMsg{});
     params_.gate = false;
     mozzi_engine::stop();
   }
 
+  void onButton(const ButtonInput &in) override {
+    if (!modal_ || in.event != ButtonEvent::Click) return;
+    if (in.button == Button::B) answerModal(true);   // B = yes, A = no
+    if (in.button == Button::A) answerModal(false);
+  }
+
+  void update(float) override { serviceLink(millis()); }
+
+  void onMessage(const net::Message &msg) override {
+    using namespace controls_link;
+    switch (msg.type) {
+      case MSG_PAIR_REPLY: {
+        ReplyMsg r;
+        if (link_ != Link::Requesting || !msg.as(r) || memcmp(msg.from, partner_, 6) != 0) break;
+        if (r.accept) {
+          link_ = Link::Paired;
+          lastStateMs_ = 0;
+          setToast("Controls paired");
+        } else {
+          markDeclined(partner_);
+          link_ = Link::None;
+          setToast("Pairing declined");
+        }
+        break;
+      }
+      case MSG_INPUT: {
+        InputMsg in;
+        if (link_ == Link::Paired && msg.as(in) && memcmp(msg.from, partner_, 6) == 0 &&
+            in.source < SOURCE_COUNT) {
+          handleInput(in.source, in.value);
+        }
+        break;
+      }
+      case MSG_UNPAIR:
+        if (link_ != Link::None && memcmp(msg.from, partner_, 6) == 0) unlink("Controls unpaired");
+        break;
+    }
+  }
+
   void onTouch(const TouchInput &in) override {
+    if (modal_) {
+      if (in.event == TouchEvent::Tap) {
+        if (ui::hit(ui::CONFIRM_YES, in.x, in.y)) answerModal(true);
+        else if (ui::hit(ui::CONFIRM_NO, in.x, in.y)) answerModal(false);
+      }
+      return;
+    }
     float dx = in.x - Display::CX, dy = in.y - Display::CY;
     float dist = sqrtf(dx * dx + dy * dy);
     switch (in.event) {
       case TouchEvent::Down:
+        learn_ = UNMAPPED;  // touching anything else abandons a learn in progress
         if (dist >= RING_HIT_IN) {
           drag_ = DRAG_RING;
           noteOn(noteAt(dx, dy));
         } else if ((drag_ = rowAt(in.x, in.y)) != DRAG_NONE) {
+          valueBeforeTouch_ = value_[drag_];
           setRowFromX(drag_, in.x);
         }
+        break;
+      case TouchEvent::Tap:
+        if (onLinkLabel(in.x, in.y)) tapLinkLabel();
+        break;
+      case TouchEvent::LongPress:
+        if (link_ != Link::Paired) break;
+        if (drag_ >= 0) {  // a long press is not a drag: put the row back
+          setRowValue(drag_, valueBeforeTouch_);
+          startLearn(drag_);
+        } else if (abs(in.x - Display::CX) < 60 * S && abs(in.y - (ROWS_TOP - 16 * S)) < 18 * S) {
+          startLearn(TARGET_NOTE);
+        }
+        drag_ = DRAG_NONE;
         break;
       case TouchEvent::Move:
         if (drag_ == DRAG_RING) {
@@ -238,11 +343,256 @@ class Synth : public App {
   void draw(Arduino_Canvas &g) override {
     g.fillScreen(RGB565_BLACK);
     drawRing(g);
-    drawNoteName(g);
+    if (learn_ == UNMAPPED) drawNoteName(g);
     for (int r = 0; r < ROW_COUNT; r++) drawRow(g, r);
+    drawLinkLabel(g);
+    if (learn_ != UNMAPPED) drawLearn(g);
+    if (modal_) {
+      ui::drawConfirm(g, "Pair with controls", candName_, net::colorFor(cand_),
+                      "its knobs and buttons", "will play the synth");
+    }
   }
 
  private:
+  // ----- controls tile -----
+
+  enum class Link : uint8_t { None, Requesting, Paired };
+
+  void setToast(const char *text) {
+    snprintf(toast_, sizeof(toast_), "%s", text);
+    toastUntilMs_ = millis() + 2500;
+  }
+
+  void markDeclined(const uint8_t *mac) {
+    memcpy(declined_, mac, 6);
+    haveDeclined_ = true;
+  }
+
+  // The strongest controls tile in range that hasn't been turned down.
+  const net::Peer *bestControls() const {
+    const net::Peer *best = nullptr;
+    for (const net::Peer &p : net::peers()) {
+      if (p.kind != net::TileKind::Controls) continue;
+      if (haveDeclined_ && memcmp(p.mac, declined_, 6) == 0) continue;
+      if (!best || p.rssi > best->rssi) best = &p;
+    }
+    return best;
+  }
+
+  bool partnerInRange() const {
+    for (const net::Peer &p : net::peers()) {
+      if (memcmp(p.mac, partner_, 6) == 0) return true;
+    }
+    return false;
+  }
+
+  void offerPairing(const net::Peer &peer) {
+    memcpy(cand_, peer.mac, 6);
+    snprintf(candName_, sizeof(candName_), "%s", peer.name);
+    modal_ = true;
+  }
+
+  void answerModal(bool yes) {
+    modal_ = false;
+    if (!yes) {
+      markDeclined(cand_);
+      return;
+    }
+    memcpy(partner_, cand_, 6);
+    snprintf(partnerName_, sizeof(partnerName_), "%s", candName_);
+    link_ = Link::Requesting;
+    requestMs_ = millis();
+    send(partner_, controls_link::MSG_PAIR_REQUEST, controls_link::EmptyMsg{});
+    setToast("Waiting for controls...");
+  }
+
+  void unlink(const char *why) {
+    link_ = Link::None;
+    learn_ = UNMAPPED;
+    if (noteHeldByControls_) {
+      noteHeldByControls_ = false;
+      params_.gate = false;
+    }
+    setToast(why);
+  }
+
+  void serviceLink(uint32_t now) {
+    using namespace controls_link;
+    if (modal_ && !partnerInRangeOrCand()) modal_ = false;
+    if (learn_ != UNMAPPED && now - learnSinceMs_ > LEARN_TIMEOUT_MS) learn_ = UNMAPPED;
+
+    if (link_ == Link::Requesting && now - requestMs_ > REQUEST_TIMEOUT_MS) {
+      markDeclined(partner_);
+      link_ = Link::None;
+      setToast("No answer");
+    } else if (link_ == Link::Paired) {
+      if (!partnerInRange()) {
+        unlink("Controls lost");
+      } else if (now - lastStateMs_ >= STATE_INTERVAL_MS) {
+        lastStateMs_ = now;
+        sendState();
+      }
+    }
+  }
+
+  bool partnerInRangeOrCand() const {
+    for (const net::Peer &p : net::peers()) {
+      if (memcmp(p.mac, cand_, 6) == 0) return true;
+    }
+    return false;
+  }
+
+  // Tell the controls tile what each input does right now, for its OLED.
+  void sendState() {
+    controls_link::StateMsg st{};
+    snprintf(st.title, sizeof(st.title), "SYNTH");
+    for (int i = 0; i < controls_link::SOURCE_COUNT; i++) {
+      int t = map_[i];
+      if (t == UNMAPPED) continue;
+      snprintf(st.slot[i].label, sizeof(st.slot[i].label), "%s", targetName(t));
+      if (controls_link::isTurn(i)) {
+        st.slot[i].value = (uint8_t)(levelOf(t) * 255.0f);
+      } else {
+        st.slot[i].value = (t == TARGET_NOTE && params_.gate && noteHeldByControls_) ? 255 : 0;
+      }
+    }
+    send(partner_, controls_link::MSG_STATE, st);
+  }
+
+  float levelOf(int target) const {
+    return target == TARGET_NOTE ? note_ / 11.0f : value_[target];
+  }
+
+  void handleInput(uint8_t source, int8_t value) {
+    if (learn_ != UNMAPPED) {
+      // The next real input claims the row being learned.
+      bool real = controls_link::isTurn(source) ? value != 0 : value == 1;
+      if (!real) return;
+      map_[source] = learn_;
+      saveMap();
+      char msg[32];
+      snprintf(msg, sizeof(msg), "%s = %s", controls_link::sourceTag(source), targetName(learn_));
+      setToast(msg);
+      learn_ = UNMAPPED;
+      return;
+    }
+    int t = map_[source];
+    if (t == UNMAPPED) return;
+
+    if (controls_link::isTurn(source)) {
+      if (t == TARGET_NOTE) {
+        changeNote(((note_ + value) % 12 + 12) % 12);  // turn through the chromatic notes
+      } else if (ROWS[t].steps) {
+        stepRow(t, value);
+      } else {
+        setRowValue(t, value_[t] + value * KNOB_STEP);
+      }
+    } else if (t == TARGET_NOTE) {
+      // Held: plays the note the ring (or knob) last picked.
+      if (value == 1) {
+        noteOn(note_);
+        noteHeldByControls_ = true;
+      } else if (noteHeldByControls_) {
+        params_.gate = false;
+        noteHeldByControls_ = false;
+      }
+    } else if (value == 1) {
+      // A press on a row steps it to the next setting, wrapping round.
+      if (ROWS[t].steps) {
+        stepRow(t, 1, true);
+      } else {
+        setRowValue(t, value_[t] + PRESS_STEP > 1.001f ? 0.0f : value_[t] + PRESS_STEP);
+      }
+    }
+  }
+
+  // Move a stepped row by whole settings.
+  void stepRow(int row, int delta, bool wrap = false) {
+    int steps = ROWS[row].steps;
+    int idx = lroundf(value_[row] * (steps - 1)) + delta;
+    idx = wrap ? ((idx % steps) + steps) % steps : constrain(idx, 0, steps - 1);
+    setRowValue(row, idx / (float)(steps - 1));
+  }
+
+  void startLearn(int target) {
+    learn_ = target;
+    learnSinceMs_ = millis();
+  }
+
+  static constexpr float LABEL_DOWN = 13.0f;  // below the rows, in px at full scale
+
+  bool onLinkLabel(int16_t x, int16_t y) const {
+    int16_t ly = ROWS_TOP + ROWS_H + LABEL_DOWN * S;
+    return abs(x - Display::CX) < 70 * S && abs(y - ly) < 14 * S && linkLabel() != nullptr;
+  }
+
+  const char *linkLabel() const {
+    static char buf[32];
+    if (link_ == Link::Paired) {
+      snprintf(buf, sizeof(buf), "paired %s", partnerName_);
+      return buf;
+    }
+    if (link_ == Link::None) {
+      if (const net::Peer *p = bestControls()) {
+        snprintf(buf, sizeof(buf), "tap: pair %s", p->name);
+        return buf;
+      }
+    }
+    return nullptr;
+  }
+
+  void tapLinkLabel() {
+    if (link_ == Link::Paired) {
+      send(partner_, controls_link::MSG_UNPAIR, controls_link::EmptyMsg{});
+      unlink("Controls unpaired");
+    } else if (link_ == Link::None) {
+      if (const net::Peer *p = bestControls()) offerPairing(*p);
+    }
+  }
+
+  void drawLinkLabel(Arduino_Canvas &g) {
+    uint8_t size = ui::size(1.5f);
+    int16_t ly = ROWS_TOP + ROWS_H + LABEL_DOWN * S;
+    if (millis() < toastUntilMs_) {
+      ui::centered(g, toast_, ly, size, RGB565_YELLOW);
+      return;
+    }
+    if (const char *text = linkLabel()) {
+      ui::centered(g, text, ly, size, link_ == Link::Paired ? RGB565_GREEN : RGB565_DARKGREY);
+    }
+  }
+
+  void drawLearn(Arduino_Canvas &g) {
+    ui::centered(g, "move a control", ROWS_TOP - 24 * S, ui::size(1.5f), RGB565_LIGHTGREY);
+    ui::centered(g, targetName(learn_), ROWS_TOP - 8 * S, ui::size(2), RGB565_YELLOW);
+    if (learn_ != TARGET_NOTE) {
+      int16_t top = ROWS_TOP + learn_ * (ROW_H + ROW_GAP);
+      g.drawRect(ROWS_LEFT - 2, top - 2, ROW_W + 4, ROW_H + 4, RGB565_YELLOW);
+    }
+  }
+
+  // ----- the input map, saved across reboots -----
+
+  void loadMap() {
+    for (int i = 0; i < controls_link::SOURCE_COUNT; i++) map_[i] = DEFAULT_MAP[i];
+    Preferences prefs;
+    if (!prefs.begin("dijatile", true)) return;
+    int8_t saved[controls_link::SOURCE_COUNT];
+    if (prefs.getBytes("synthmap", saved, sizeof(saved)) == sizeof(saved)) {
+      for (int i = 0; i < controls_link::SOURCE_COUNT; i++) {
+        if (saved[i] >= UNMAPPED && saved[i] < TARGET_COUNT) map_[i] = saved[i];
+      }
+    }
+    prefs.end();
+  }
+
+  void saveMap() {
+    Preferences prefs;
+    if (!prefs.begin("dijatile", false)) return;
+    prefs.putBytes("synthmap", map_, sizeof(map_));
+    prefs.end();
+  }
+
   // ----- notes -----
 
   static int noteAt(float dx, float dy) {
@@ -396,6 +746,22 @@ class Synth : public App {
   int octave_ = 2;
   int note_ = 0;
   int drag_ = DRAG_NONE;
+  float valueBeforeTouch_ = 0;
+
+  // controls tile
+  Link link_ = Link::None;
+  bool modal_ = false;
+  bool noteHeldByControls_ = false;
+  bool haveDeclined_ = false;
+  int8_t map_[controls_link::SOURCE_COUNT] = {};
+  int learn_ = UNMAPPED;  // target being learned, or UNMAPPED
+  uint8_t partner_[6] = {};
+  char partnerName_[16] = {};
+  uint8_t cand_[6] = {};
+  char candName_[16] = {};
+  uint8_t declined_[6] = {};
+  uint32_t requestMs_ = 0, lastStateMs_ = 0, learnSinceMs_ = 0, toastUntilMs_ = 0;
+  char toast_[32] = {};
 };
 
 REGISTER_APP(Synth);

@@ -68,6 +68,30 @@ inline void drawButton(Arduino_GFX &g, const Button &b, uint8_t textSize, uint16
   g.print(b.label);
 }
 
+// A yes/no question panel in the middle of the screen: a header line, a name
+// (e.g. the other tile) in big letters, two lines of detail and Yes / No
+// buttons. confirmAnswer() maps a tap to 1 (yes), 0 (no) or -1 (neither).
+constexpr Button CONFIRM_YES = {(int16_t)(Display::CX - 70 * SCALE), (int16_t)(Display::CY + 62 * SCALE),
+                                (int16_t)(110 * SCALE), (int16_t)(44 * SCALE), "Yes"};
+constexpr Button CONFIRM_NO = {(int16_t)(Display::CX + 70 * SCALE), (int16_t)(Display::CY + 62 * SCALE),
+                               (int16_t)(110 * SCALE), (int16_t)(44 * SCALE), "No"};
+static_assert(fitsScreen(CONFIRM_YES) && fitsScreen(CONFIRM_NO), "confirm buttons must fit");
+
+inline void drawConfirm(Arduino_GFX &g, const char *header, const char *name, uint16_t nameColor,
+                        const char *line1, const char *line2) {
+  const int16_t x = Display::CX - 150 * SCALE, y = Display::CY - 92 * SCALE;
+  const int16_t w = 300 * SCALE, h = 190 * SCALE, r = 14 * SCALE;
+  g.fillRoundRect(x, y, w, h, r, g.color565(20, 20, 30));
+  g.drawRoundRect(x, y, w, h, r, RGB565_LIGHTGREY);
+  uint8_t small = size(1.5f);
+  centered(g, header, Display::CY - 66 * SCALE, small, RGB565_LIGHTGREY);
+  centered(g, name, Display::CY - 38 * SCALE, size(3), nameColor);
+  centered(g, line1, Display::CY - 6 * SCALE, small, RGB565_WHITE);
+  centered(g, line2, Display::CY + 12 * SCALE, small, RGB565_WHITE);
+  drawButton(g, CONFIRM_YES, size(2), g.color565(30, 140, 60), RGB565_WHITE);
+  drawButton(g, CONFIRM_NO, size(2), g.color565(120, 40, 40), RGB565_WHITE);
+}
+
 // Point-in-button, with a little slop so fingertips don't have to be exact.
 inline bool hit(const Button &b, int16_t x, int16_t y) {
   int16_t slop = 10 * SCALE;

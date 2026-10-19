@@ -16,6 +16,11 @@ void setup()
   if (!board::display.begin()) Serial.println("Display init failed");
   if (!board::touch.begin()) Serial.println("Touch init failed (or no touch panel)");
   if (!board::imu.begin()) Serial.println("IMU init failed");
+#if defined(BOARD_WS_146B)
+  net::setIdentity(net::TileKind::Display, net::BOARD_ROUND_146);
+#else
+  net::setIdentity(net::TileKind::Display, net::BOARD_SQUARE_154);
+#endif
   if (!net::begin()) Serial.println("ESP-NOW init failed");
   Serial.printf("I am %s\n", net::myName());
 

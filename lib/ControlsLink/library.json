@@ -1,0 +1,7 @@
+{
+  "name": "ControlsLink",
+  "version": "0.1.0",
+  "description": "Message format between a display tile (running an app) and the Controls tile (encoders and buttons).",
+  "frameworks": "arduino",
+  "platforms": "espressif32"
+}

@@ -12,7 +12,7 @@ namespace net {
 namespace {
 
 constexpr uint8_t MAGIC = 0xD7;
-constexpr uint8_t VERSION = 1;
+constexpr uint8_t VERSION = 2;  // 2: beacons carry the tile kind and board
 constexpr uint8_t SYS_HELLO = 1;
 constexpr uint32_t BEACON_MS = 1000;
 const uint8_t BROADCAST_MAC[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
@@ -28,6 +28,8 @@ struct __attribute__((packed)) Header {
 struct __attribute__((packed)) Hello {
   char name[16];
   uint16_t appId;
+  uint8_t kind;
+  uint8_t board;
 };
 
 struct Packet {
@@ -44,6 +46,8 @@ uint8_t mac[6];
 char name[16];
 uint16_t currentApp = 0;
 uint8_t activeChannel = 1;
+TileKind myKind = TileKind::Display;
+uint8_t myBoard = BOARD_UNKNOWN;
 uint32_t lastBeacon = 0;
 std::vector<Peer> peerList;
 
@@ -85,6 +89,8 @@ void notePeer(const Packet &p, const Hello &hello) {
       memcpy(peer.name, hello.name, sizeof(peer.name));
       peer.name[sizeof(peer.name) - 1] = 0;
       peer.appId = hello.appId;
+      peer.kind = (TileKind)hello.kind;
+      peer.board = hello.board;
       peer.rssi = p.rssi;
       peer.lastSeenMs = now;
       return;
@@ -95,6 +101,8 @@ void notePeer(const Packet &p, const Hello &hello) {
   memcpy(peer.name, hello.name, sizeof(peer.name));
   peer.name[sizeof(peer.name) - 1] = 0;
   peer.appId = hello.appId;
+  peer.kind = (TileKind)hello.kind;
+  peer.board = hello.board;
   peer.rssi = p.rssi;
   peer.lastSeenMs = now;
   peerList.push_back(peer);
@@ -116,10 +124,34 @@ void sendBeacon() {
   Hello hello{};
   strncpy(hello.name, name, sizeof(hello.name) - 1);
   hello.appId = currentApp;
+  hello.kind = (uint8_t)myKind;
+  hello.board = myBoard;
   sendRaw(BROADCAST_MAC, 0, SYS_HELLO, &hello, sizeof(hello));
 }
 
 }  // namespace
+
+const char *kindName(TileKind kind) {
+  switch (kind) {
+    case TileKind::Display: return "display";
+    case TileKind::Controls: return "controls";
+    default: return "?";
+  }
+}
+
+const char *boardName(uint8_t board) {
+  switch (board) {
+    case BOARD_ROUND_146: return "round";
+    case BOARD_SQUARE_154: return "square";
+    case BOARD_CONTROLS_C3: return "controls";
+    default: return "?";
+  }
+}
+
+void setIdentity(TileKind kind, uint8_t board) {
+  myKind = kind;
+  myBoard = board;
+}
 
 bool begin(uint8_t channel) {
   if (isStarted) return true;
@@ -210,6 +242,13 @@ size_t peerCount(uint16_t appId) {
   size_t n = 0;
   for (const Peer &p : peerList) n += p.appId == appId;
   return n;
+}
+
+TileKind kindOf(const uint8_t *m) {
+  for (const Peer &p : peerList) {
+    if (memcmp(p.mac, m, 6) == 0) return p.kind;
+  }
+  return TileKind::Unknown;
 }
 
 const uint8_t *myMac() { return mac; }

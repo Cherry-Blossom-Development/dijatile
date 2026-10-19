@@ -222,12 +222,6 @@ constexpr uint32_t TOAST_MS = 2500;
 
 bool sameMac(const uint8_t *a, const uint8_t *b) { return memcmp(a, b, 6) == 0; }
 
-constexpr ui::Button BTN_YES = {(int16_t)(Display::CX - 70 * S), (int16_t)(Display::CY + 62 * S),
-                                (int16_t)(110 * S), (int16_t)(44 * S), "Yes"};
-constexpr ui::Button BTN_NO = {(int16_t)(Display::CX + 70 * S), (int16_t)(Display::CY + 62 * S),
-                               (int16_t)(110 * S), (int16_t)(44 * S), "No"};
-static_assert(ui::fitsScreen(BTN_YES) && ui::fitsScreen(BTN_NO), "pairing buttons must fit");
-
 }  // namespace
 
 class TiltTheremin : public App {
@@ -330,8 +324,8 @@ class TiltTheremin : public App {
   void onTouch(const TouchInput &in) override {
     if (modal_ != Modal::None) {
       if (in.event == TouchEvent::Tap) {
-        if (ui::hit(BTN_YES, in.x, in.y)) answerModal(true);
-        else if (ui::hit(BTN_NO, in.x, in.y)) answerModal(false);
+        if (ui::hit(ui::CONFIRM_YES, in.x, in.y)) answerModal(true);
+        else if (ui::hit(ui::CONFIRM_NO, in.x, in.y)) answerModal(false);
       }
       return;
     }
@@ -631,17 +625,9 @@ class TiltTheremin : public App {
 
   void drawModal(Arduino_Canvas &g) {
     bool ask = modal_ == Modal::AskPair;
-    g.fillRoundRect(Display::CX - 150 * S, Display::CY - 92 * S, 300 * S, 190 * S, 14 * S,
-                    g.color565(20, 20, 30));
-    g.drawRoundRect(Display::CX - 150 * S, Display::CY - 92 * S, 300 * S, 190 * S, 14 * S,
-                    RGB565_LIGHTGREY);
-    uint8_t small = ui::size(1.5f);
-    ui::centered(g, ask ? "Pair with" : "Pair request from", Display::CY - 66 * S, small, RGB565_LIGHTGREY);
-    ui::centered(g, candName_, Display::CY - 38 * S, ui::size(3), net::colorFor(cand_));
-    ui::centered(g, ask ? "you play volume" : "you play pitch", Display::CY - 6 * S, small, RGB565_WHITE);
-    ui::centered(g, ask ? "they play pitch" : "they play volume", Display::CY + 12 * S, small, RGB565_WHITE);
-    ui::drawButton(g, BTN_YES, ui::size(2), g.color565(30, 140, 60), RGB565_WHITE);
-    ui::drawButton(g, BTN_NO, ui::size(2), g.color565(120, 40, 40), RGB565_WHITE);
+    ui::drawConfirm(g, ask ? "Pair with" : "Pair request from", candName_, net::colorFor(cand_),
+                    ask ? "you play volume" : "you play pitch",
+                    ask ? "they play pitch" : "they play volume");
   }
 
   // ----- controls -----

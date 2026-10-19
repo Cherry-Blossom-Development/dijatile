@@ -47,8 +47,11 @@ class Nearby : public App {
     for (size_t i = 0; i < peers.size() && i < 5; i++, y += line) {
       const net::Peer &p = peers[i];
       App *app = app_registry::byNetId(p.appId);
-      snprintf(buf, sizeof(buf), "%s %s %d", p.name, p.appId == 0 ? "Home" : app ? app->name() : "?",
-               p.rssi);
+      const char *what = p.kind == net::TileKind::Controls ? "controls"
+                         : p.appId == 0                      ? "Home"
+                         : app                               ? app->name()
+                                                             : "?";
+      snprintf(buf, sizeof(buf), "%s %s %d", p.name, what, p.rssi);
       ui::centered(g, buf, y, ui::size(2), net::colorFor(p.mac));
     }
     ui::centered(g, board::touch.available() ? "tap to ping" : "B ping", Display::HEIGHT - 50 * ui::SCALE, ui::size(2), RGB565_LIGHTGREY);

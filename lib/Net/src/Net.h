@@ -22,10 +22,29 @@ using Mac = uint8_t[6];
 constexpr size_t MAX_PAYLOAD = 240;  // ESP-NOW frame is 250; we use 6 for the header
 constexpr uint32_t PEER_TIMEOUT_MS = 4000;
 
+// What kind of tile a device is. Every tile announces this in its beacon, so
+// an app can decide which tiles it plays with (see App::acceptsKind).
+enum class TileKind : uint8_t {
+  Unknown = 0,
+  Display = 1,   // has a screen and runs apps (the round and square tiles)
+  Controls = 2,  // knobs and buttons, no apps (the ESP32-C3 controls tile)
+};
+
+// The exact board, for display. Boards of the same kind interoperate.
+constexpr uint8_t BOARD_UNKNOWN = 0;
+constexpr uint8_t BOARD_ROUND_146 = 1;
+constexpr uint8_t BOARD_SQUARE_154 = 2;
+constexpr uint8_t BOARD_CONTROLS_C3 = 3;
+
+const char *kindName(TileKind kind);
+const char *boardName(uint8_t board);
+
 struct Peer {
   uint8_t mac[6];
   char name[16];
   uint16_t appId;  // what the peer is running right now
+  TileKind kind;
+  uint8_t board;
   int8_t rssi;
   uint32_t lastSeenMs;
 };
@@ -49,6 +68,9 @@ struct Message {
 };
 
 using Handler = void (*)(const Message &msg, void *ctx);
+
+// What this device announces about itself. Call before begin().
+void setIdentity(TileKind kind, uint8_t board);
 
 // Starts WiFi in station mode (not connected to anything) and ESP-NOW.
 // All devices in a game must use the same channel.
@@ -85,6 +107,8 @@ void poll(Handler handler, void *ctx);
 const std::vector<Peer> &peers();
 // Peers currently running the given app.
 size_t peerCount(uint16_t appId);
+// The kind of the peer with this MAC, or Unknown if it hasn't been heard lately.
+TileKind kindOf(const uint8_t *mac);
 
 const uint8_t *myMac();
 const char *myName();  // "dj-XXXX" from the MAC

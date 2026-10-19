@@ -106,7 +106,12 @@ void activate(App *next) {
 }
 
 void onNet(const net::Message &msg, void *) {
-  if (active && msg.appId == active->netId()) active->onMessage(msg);
+  if (!active || msg.appId != active->netId()) return;
+  // A tile whose kind the app doesn't accept can't talk to it. An unknown kind
+  // (no beacon yet) gets the benefit of the doubt.
+  net::TileKind kind = net::kindOf(msg.from);
+  if (kind != net::TileKind::Unknown && !active->acceptsKind(kind)) return;
+  active->onMessage(msg);
 }
 
 bool isHomeGesture(const TouchInput &in) {

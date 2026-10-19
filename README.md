@@ -74,7 +74,9 @@ src/core/
   PixelRootCompat.h       force-included fix so PixelRoot32 builds without its own display drivers
 src/games/                one file per game
 src/apps/                 one file per utility app
-lib/Net/                  ESP-NOW: peer discovery, per-app messages
+lib/Net/                  ESP-NOW: peer discovery, per-app messages, tile kinds
+lib/ControlsLink/         message format between a display tile and the Controls tile
+src/controls/             Controls tile firmware (ESP32-C3), its own PlatformIO env
 lib/Board/src/
   BoardConfig.h           per-board pin maps, I2C addresses, IMU axis mapping
   Board.h/.cpp            board::begin(), power latch
@@ -173,6 +175,41 @@ void onMessage(const net::Message &m) override {
   are never acknowledged), so send state on a timer, not one-off events, when
   it matters. Handlers run on the main loop, so they can touch app state
   directly.
+
+## Tile kinds and the Controls tile
+
+Every tile says what it is in its beacon (`net::TileKind`): the round and
+square tiles are **Display** tiles, the ESP32-C3 tile is a **Controls** tile.
+An app chooses which kinds it plays with by overriding `acceptsKind()`; messages
+from other kinds are dropped before they reach `onMessage()`. The default is
+Display only, so Tilt Ball and Tilt Theremin never pair with a controls tile.
+Synth also accepts Controls.
+
+The **Controls tile** (`TheControlsOne`, firmware in `src/controls/`) has a
+0.96" SSD1306 OLED, two rotary encoders with push switches and two buttons.
+Wiring (pins live in `src/controls/pins.h`):
+
+| | |
+|---|---|
+| OLED I2C | SDA 6, SCL 7, address 0x3C |
+| Buttons A / B | GPIO 20 / 21 |
+| Encoder 1 | SW 10, CLK 9, DT 8 |
+| Encoder 2 | SW 4, CLK 2, DT 5 |
+
+Switches go to ground (internal pull-ups). GPIO 2, 8 and 9 are the C3's
+strapping pins: fine as inputs, but a CLK contact held closed on GPIO 9 during
+reset boots the chip into download mode. If an encoder counts backwards, flip
+`ENC1_REVERSED` / `ENC2_REVERSED`.
+
+Pairing: open Synth with the controls tile in range and you're asked to pair; the
+controls tile shows the request (A accepts, B declines). Hold A and B for 1.5 s
+to unpair, or tap the label under the synth's rows. Once paired, the knobs and
+buttons drive the synth and the OLED shows what each one does. Defaults: knob 1
+= cutoff, knob 2 = resonance, knob presses = next waveform / envelope step,
+A = play the note (hold), B = next octave. To remap, long-press a row (or the
+note name) on the synth, then turn or press the control you want. The map is
+saved across reboots. See `lib/ControlsLink/src/ControlsLink.h` for the
+protocol.
 
 ## PixelRoot32 games
 
