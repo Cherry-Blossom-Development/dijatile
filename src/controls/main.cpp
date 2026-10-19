@@ -36,6 +36,7 @@ bool unpairChordArmed = false;  // only after A and B have both been up since pa
 StateMsg shown;  // what the display tile last said each control does
 bool haveShown = false;
 bool dirty = true;
+uint32_t drawMaxMs = 0, loopMaxMs = 0;  // since the last status line
 uint32_t lastHeartbeatMs = 0;
 uint32_t sentOk = 0, sentFail = 0;  // INPUT messages to the display tile
 
@@ -191,6 +192,7 @@ void drawPaired() {
 }
 
 void draw() {
+  uint32_t started = millis();
   oled.clearBuffer();
   switch (state) {
     case State::Idle: drawIdle(); break;
@@ -198,12 +200,17 @@ void draw() {
     case State::Paired: drawPaired(); break;
   }
   oled.sendBuffer();
+  uint32_t took = millis() - started;
+  if (took > drawMaxMs) drawMaxMs = took;
 }
 
 }  // namespace
 
 void setup() {
   Serial.begin(115200);
+  // Never let logging block: with a USB host attached but nothing reading, a
+  // Serial write can otherwise stall the loop for up to two seconds.
+  Serial.setTxTimeoutMs(0);
   Serial.println("Controls tile");
 
   oled.setI2CAddress(pins::OLED_ADDR << 1);
@@ -221,6 +228,11 @@ void setup() {
 }
 
 void loop() {
+  static uint32_t lastLoopStart = 0;
+  uint32_t loopStart = millis();
+  if (lastLoopStart && loopStart - lastLoopStart > loopMaxMs) loopMaxMs = loopStart - lastLoopStart;
+  lastLoopStart = loopStart;
+
   inputs.poll();
   net::poll(onNet, nullptr);
 
@@ -268,6 +280,9 @@ void loop() {
   static uint32_t lastStatus = 0;
   if (now - lastStatus >= 2000) {
     lastStatus = now;
+    Serial.printf("[timing] oled draw max %lu ms, loop gap max %lu ms\n", (unsigned long)drawMaxMs,
+                  (unsigned long)loopMaxMs);
+    drawMaxMs = loopMaxMs = 0;
     Serial.printf("[status] %s linkAge=%lums sentOk=%lu sentFail=%lu displayTiles=%u down[E1p=%d E2p=%d A=%d B=%d]\n",
                   state == State::Idle ? "idle" : state == State::Incoming ? "incoming" : "PAIRED",
                   state == State::Paired ? (unsigned long)(now - lastLinkMs) : 0UL, (unsigned long)sentOk,

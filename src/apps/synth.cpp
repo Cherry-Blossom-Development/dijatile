@@ -262,7 +262,9 @@ class Synth : public App {
 
   void onMessage(const net::Message &msg) override {
     using namespace controls_link;
-    Serial.printf("[synth] controls msg 0x%02X len %u\n", msg.type, (unsigned)msg.len);
+    if (msg.type != MSG_HEARTBEAT && msg.type != MSG_INPUT) {
+      Serial.printf("[synth] controls msg 0x%02X len %u\n", msg.type, (unsigned)msg.len);
+    }
     switch (msg.type) {
       case MSG_HEARTBEAT:
         if (link_ == Link::Paired && memcmp(msg.from, partner_, 6) == 0) lastHeardMs_ = millis();

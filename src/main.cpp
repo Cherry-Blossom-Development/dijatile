@@ -10,6 +10,9 @@
 void setup() 
 {
   Serial.begin(115200);
+  // Never let logging block: with a USB host attached but nothing reading, a
+  // Serial write can otherwise stall the main loop for up to two seconds.
+  Serial.setTxTimeoutMs(0);
   Serial.println(BOARD_NAME);
 
   if (!board::begin()) Serial.println("Board init failed");
