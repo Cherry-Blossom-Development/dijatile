@@ -58,6 +58,7 @@ Built in:
 | **PixelRoot Demo** (game) | A [PixelRoot32](https://github.com/PixelRoot32-Game-Engine/PixelRoot32-Game-Engine) engine scene. Tap or click to count. Start here for engine-based games. |
 | **Music** | Plays the audio files in the SD card root. Tap to pause, swipe left to skip, swipe up/down for volume. |
 | **Synth** | Monophonic synth. Touch the ring around the edge to play a note (C at the top, clockwise); slide to change notes. The middle has the controls: waveform, octave, detune, Moog-style filter cutoff / resonance / envelope, and release. |
+| **Tilepet** (game) | A tamagotchi-style pet in a gravity box: tilt the tile and it walks or climbs to the new floor, shake it and it gets dizzy, leave it flat and it falls asleep. Hatches, grows, needs care, plays three mini-games and dances to MP3s from `/music` on the SD card or to music it hears. See [docs/tilepet.md](docs/tilepet.md). |
 | **Tilt Theremin** | A tilt-controlled synth built on [Mozzi](https://sensorium.github.io/Mozzi/). Tilt left/right for pitch, top edge up for volume; drag the rim arcs for timbre, range, vibrato, scale (swipe the middle for echo and gate). See `src/specs/tilt-theremin-spec.md`. |
 | **Edge Test** | Live view of IR edge detection for bench testing: each edge's state, sensor, who is linked there and how they are rotated, counters and a short event log; beeps on join and leave. Tap toggles range-test mode. |
 | **Nearby** | Lists devices in ESP-NOW range and what they're running. Tap to ping them: they beep and flash in your color. |
@@ -78,19 +79,22 @@ src/apps/                 one file per utility app
 lib/Net/                  ESP-NOW: peer discovery, per-app messages, tile kinds
 lib/ControlsLink/         message format between a display tile and the Controls tile
 lib/Edge/                 IR edge detection (which tile touches which edge), unit-tested
-docs/                     protocols.md (all wire formats) and edge-detection.md
+lib/Pet/                  Tilepet game logic, board-free and unit-tested (host: src/games/tilepet.cpp)
+docs/                     protocols.md (all wire formats), edge-detection.md, tilepet.md
+tools/sprites.py          Aseprite -> C header export for Tilepet art
 src/controls/             Controls tile firmware (ESP32-C3), its own PlatformIO env
 lib/Board/src/
   BoardConfig.h           per-board pin maps, I2C addresses, IMU axis mapping
-  Board.h/.cpp            board::begin(), power latch
+  Board.h/.cpp            board::begin(), power latch, battery level, charge detect
+  Storage.cpp             shared microSD mount (board::sdMount)
   Buttons.h/.cpp          debounced click / long-press events
   Touch.h/.cpp            tap / long-press / swipe / drag events, both controllers
   touch/                  SPD2010 touch driver (1.46B); CST816 comes from SensorLib
   Display.h/.cpp          Arduino_GFX panel + PSRAM canvas, backlight PWM
   Imu.h/.cpp              QMI8658 (SensorLib)
   Speaker.h/.cpp          non-blocking tone() on a background audio task
-  Microphone.h/.cpp       loudness level() or raw read()
-  AudioBus.h/.cpp         I2S ports per board; ES8311/ES7210 setup on the 1.54
+  Microphone.h/.cpp       loudness level() or raw read() (both mics mixed on the 1.54)
+  AudioBus.h/.cpp         I2S ports per board; ES8311/ES7210 setup and amp gate on the 1.54
   IoExpander.h/.cpp       TCA9554 (1.46B: LCD/touch reset, SD CS)
   codecs/                 ES8311 / ES7210 drivers (Espressif, Apache-2.0)
 ```
@@ -257,6 +261,9 @@ newer standard.
 - **Use `Speaker` or ESP32-audioI2S, not both at once.** They drive the same
   pins. Apps that use `Audio` set `exclusiveAudio()`, and on the 1.54 they call
   `audio_bus::prepareExternalOutput()` first (see `src/apps/music.cpp`).
+  Tilepet switches between the two at run time instead and mixes its sound
+  effects into the decoded stream through `audio_process_i2s`; only one file
+  in the firmware may define that hook.
 - **IMU axis mapping hasn't been tested on hardware.** If the ball rolls the
   wrong way, change `imu_axes` in `BoardConfig.h`.
 - **Power latch:** `board::begin()` drives the hold pin high, so on battery

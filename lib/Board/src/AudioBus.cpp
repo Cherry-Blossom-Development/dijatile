@@ -57,6 +57,8 @@ void releaseInput() {
 
 bool prepareExternalOutput() { return true; }
 
+void setAmp(bool) {}
+
 #else  // shared full-duplex bus with ES8311 + ES7210
 
 namespace {
@@ -158,7 +160,15 @@ void releaseOutput() {
 
 void releaseInput() { release(); }
 
-bool prepareExternalOutput() { return initDac(); }
+bool prepareExternalOutput() {
+  if (!initDac()) return false;
+  digitalWrite(pins::PA_EN, HIGH);
+  return true;
+}
+
+void setAmp(bool on) {
+  if (dacReady) digitalWrite(pins::PA_EN, on ? HIGH : LOW);
+}
 
 #endif
 

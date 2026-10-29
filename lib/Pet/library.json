@@ -1,0 +1,7 @@
+{
+  "name": "Pet",
+  "version": "0.1.0",
+  "description": "Tilepet: a tamagotchi-style virtual pet game. Pure C++ with no board or Arduino code; a host (src/games/tilepet.cpp) supplies time, IMU samples, input, audio, storage and the screen. Unit-tested on the desktop.",
+  "frameworks": "*",
+  "platforms": "*"
+}

@@ -53,8 +53,17 @@ class App {
   virtual void begin() {}
   virtual void end() {}
   virtual void update(float dt) {}
+  // Return false to skip draw() and the flush this frame (an app that runs
+  // its own, lower frame rate). The panel keeps showing the last frame.
+  virtual bool redraw() { return true; }
   // Draw the whole frame. The manager flushes it to the panel afterwards.
   virtual void draw(Arduino_Canvas &g) = 0;
+  // The manager is about to light-sleep after a few idle minutes (audio and
+  // ESP-NOW are stopped first), and has just woken up again.
+  virtual void sleep() {}
+  virtual void wake() {}
+  // One line from the serial console. Return true if it was for this app.
+  virtual bool onCommand(const char *line) { return false; }
   virtual void onButton(const ButtonInput &in) {}
   // Touch gestures in screen pixels. For dragging, Down/Move/Up give the
   // finger position; board::touch.pressed()/x()/y() can be polled instead.

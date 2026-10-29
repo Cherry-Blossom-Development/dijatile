@@ -2,6 +2,8 @@
 
 #include <math.h>
 
+#include "BoardConfig.h"
+
 namespace {
 constexpr size_t FRAMES_PER_CHUNK = 256;
 }
@@ -26,11 +28,22 @@ void Microphone::end() {
 
 size_t Microphone::read(int16_t *samples, size_t count) {
   if (!i2s_) return 0;
-  int16_t frame[2];
+  int16_t buf[FRAMES_PER_CHUNK * 2];
   size_t n = 0;
-  for (; n < count; n++) {
-    if (i2s_->readBytes((char *)frame, sizeof(frame)) != sizeof(frame)) break;
-    samples[n] = abs(frame[0]) > abs(frame[1]) ? frame[0] : frame[1];
+  while (n < count) {
+    size_t want = count - n < FRAMES_PER_CHUNK ? count - n : FRAMES_PER_CHUNK;
+    size_t got = i2s_->readBytes((char *)buf, want * 2 * sizeof(int16_t)) / (2 * sizeof(int16_t));
+    if (got == 0) break;
+    for (size_t i = 0; i < got; i++) {
+#if BOARD_AUDIO_SHARED_BUS
+      // ES7210: two mics, one per slot; sum them to mono.
+      samples[n + i] = (int16_t)(((int32_t)buf[2 * i] + buf[2 * i + 1]) / 2);
+#else
+      // One MEMS mic answering on one slot.
+      samples[n + i] = abs(buf[2 * i]) > abs(buf[2 * i + 1]) ? buf[2 * i] : buf[2 * i + 1];
+#endif
+    }
+    n += got;
   }
   return n;
 }

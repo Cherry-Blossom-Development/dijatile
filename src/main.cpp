@@ -40,7 +40,8 @@ void setup()
   app_manager::begin();
 }
 
-// Serial console: one command per line ("edge status", ...).
+// Serial console: one command per line ("edge status", "pet status", ...).
+// Lines the edge service doesn't take go to the current app.
 static void pollConsole() {
   static char line[64];
   static size_t len = 0;
@@ -49,7 +50,8 @@ static void pollConsole() {
     if (c == '\n' || c == '\r') {
       if (len) {
         line[len] = 0;
-        if (!edge::handleCommand(line, Serial)) Serial.printf("unknown command: %s\n", line);
+        if (!edge::handleCommand(line, Serial) && !app_manager::handleCommand(line))
+          Serial.printf("unknown command: %s\n", line);
       }
       len = 0;
     } else if (len < sizeof(line) - 1) {

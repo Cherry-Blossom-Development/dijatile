@@ -18,7 +18,8 @@ class Microphone {
   // Smoothed loudness, roughly 0 (silence) .. 1 (very loud). trackLevel only.
   float level() const { return level_; }
 
-  // Reads mono 16-bit samples (blocking). Use with begin(false).
+  // Reads mono 16-bit samples (blocking; both mics mixed on the 1.54).
+  // Use with begin(false).
   size_t read(int16_t *samples, size_t count);
 
 

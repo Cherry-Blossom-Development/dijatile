@@ -21,6 +21,11 @@ I2SClass *acquireInput();
 void releaseOutput();
 void releaseInput();
 
+// Speaker amp on/off while output is running (NS4150B on the 1.54; no-op on
+// boards without one). Apps that only make occasional sounds can mute it
+// between them to save power and avoid hiss. Acquiring output turns it on.
+void setAmp(bool on);
+
 // Prepare the codec/amp for an external player that drives the speaker pins
 // itself (e.g. ESP32-audioI2S). No-op on boards without a codec.
 bool prepareExternalOutput();

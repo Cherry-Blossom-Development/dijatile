@@ -29,7 +29,7 @@ Firmware for the Dijatile tiles: two ESP32-S3 display tiles (Waveshare 1.46B rou
   `pio device list` shows SER=.
 - Build: `pio run -e TheRoundOne` (also `TheSquareOne`, `TheControlsOne`).
   Flash several: `pio run -e TheRoundOne -e TheControlsOne -t upload`.
-- Host tests for pure logic (edge detection core): `pio test -e native`.
+- Host tests for pure logic (edge detection core, Tilepet in `lib/Pet`): `pio test -e native`.
 - `TheControlsEdgeTest` is the edge-detection bench build for the controls tile (east
   edge wired straight to GPIO 1 = detector, GPIO 2 = LED). Edge board differences live only in
   `lib/Edge/src/EdgeBoardConfig.h`.

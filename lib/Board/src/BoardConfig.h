@@ -144,6 +144,14 @@ constexpr uint8_t CST816_TOUCH = 0x15;
 
 #endif
 
+// Battery: BAT_ADC sits behind a divider. Waveshare's demos multiply the
+// pin voltage by 3 on both boards; not yet checked with a meter.
+namespace battery {
+constexpr float DIVIDER = 3.0f;
+constexpr float EMPTY_V = 3.3f;  // 0 %
+constexpr float FULL_V = 4.15f;  // 100 %
+}  // namespace battery
+
 // How the IMU axes line up with the screen (x right, y down). These are best
 // guesses; if tilting moves things the wrong way on your board, fix them here.
 namespace imu_axes {
@@ -156,6 +164,13 @@ constexpr float Y_SIGN = 1.0f;
 constexpr bool SWAP_XY = false;
 constexpr float X_SIGN = 1.0f;
 constexpr float Y_SIGN = 1.0f;
+#endif
+// Sign that makes accel z read about +1 with the screen facing up. Tilepet's
+// IMU overlay ("imu overlay on") shows it.
+#if defined(BOARD_WS_154)
+constexpr float Z_SIGN = -1.0f;  // checked on hardware 2026-10-29: z reads -1 face up
+#else
+constexpr float Z_SIGN = 1.0f;  // unchecked on the 1.46B
 #endif
 }  // namespace imu_axes
 

@@ -19,6 +19,9 @@ App *current();
 // automatically; call this for input that arrives some other way.
 void noteActivity();
 
+// Hands a serial console line to the current app. True if it took it.
+bool handleCommand(const char *line);
+
 // Master volume for board::speaker (tones and game sound effects), in steps
 // 0..VOLUME_MAX, saved across reboots. Music keeps its own volume. Beeps at
 // the new level when beep is true.

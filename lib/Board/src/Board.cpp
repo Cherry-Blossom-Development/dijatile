@@ -54,3 +54,23 @@ void powerOff() {
 }
 
 }  // namespace board
+
+namespace board {
+
+int batteryPercent() {
+  uint32_t mv = analogReadMilliVolts(pins::BAT_ADC);
+  float v = mv / 1000.0f * battery::DIVIDER;
+  if (v < 2.5f) return -1;  // nothing on the battery input
+  float pct = (v - battery::EMPTY_V) / (battery::FULL_V - battery::EMPTY_V) * 100.0f;
+  return (int)constrain(pct, 0.0f, 100.0f);
+}
+
+int charging() {
+#if defined(BOARD_WS_154)
+  return digitalRead(pins::CHARGING) == LOW ? 1 : 0;
+#else
+  return -1;
+#endif
+}
+
+}  // namespace board

@@ -185,6 +185,7 @@ bool idleTooLong() {
 
 void sleepNow() {
   Serial.println("[sleep]");
+  active->sleep();
   stopAudio();
   net::end();
   for (int i = 0; i < 5; i++) {  // let the touch controller release its INT line
@@ -215,6 +216,7 @@ void sleepNow() {
   }
   lastActivityMs = millis();
   lastFrameUs = micros();
+  active->wake();
 }
 
 }  // namespace
@@ -238,6 +240,22 @@ App *current() { return active; }
 void noteActivity() { lastActivityMs = millis(); }
 
 int volume() { return volumeLevel; }
+
+bool handleCommand(const char *line) {
+  // "app <name>" opens an app by its launcher name, "app" goes home.
+  if (strncmp(line, "app", 3) == 0 && (line[3] == 0 || line[3] == ' ')) {
+    const char *name = line[3] ? line + 4 : "";
+    App *a = name[0] ? app_registry::byName(name) : nullptr;
+    if (name[0] && !a) {
+      Serial.printf("no app named %s\n", name);
+    } else {
+      lastActivityMs = millis();
+      open(a);
+    }
+    return true;
+  }
+  return active && active->onCommand(line);
+}
 
 void setVolume(int level, bool beep) {
   applyVolume(level);
@@ -266,9 +284,12 @@ void loop() {
   net::poll(onNet, nullptr);
 
   active->update(dt);
-  active->draw(*board::display.gfx());
-  drawVolumeOverlay(*board::display.gfx());
-  board::display.flush();
+  bool overlay = (int32_t)(millis() - overlayUntilMs) < 0;
+  if (active->redraw() || overlay) {
+    active->draw(*board::display.gfx());
+    drawVolumeOverlay(*board::display.gfx());
+    board::display.flush();
+  }
 
   if (switchPending) {
     switchPending = false;

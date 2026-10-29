@@ -22,7 +22,7 @@ class Music : public App {
     current_ = 0;
     paused_ = false;
     status_ = "";
-    if (!mountSd()) {
+    if (!board::sdMount()) {
       status_ = "No SD card";
       return;
     }
@@ -51,7 +51,7 @@ class Music : public App {
       delete audio_;  // releases the I2S port for board::speaker
       audio_ = nullptr;
     }
-    SD_MMC.end();
+    board::sdUnmount();
   }
 
   void onButton(const ButtonInput &in) override {
@@ -109,17 +109,6 @@ class Music : public App {
     n.toLowerCase();
     return n.endsWith(".mp3") || n.endsWith(".wav") || n.endsWith(".aac") ||
            n.endsWith(".m4a") || n.endsWith(".flac");
-  }
-
-  static bool mountSd() {
-#if defined(BOARD_WS_146B)
-    // 1-bit mode: D3/CS sits on the IO expander and is held high by board::begin().
-    SD_MMC.setPins(pins::SD_CLK, pins::SD_CMD, pins::SD_D0);
-    return SD_MMC.begin("/sdcard", true);
-#else
-    SD_MMC.setPins(pins::SD_CLK, pins::SD_CMD, pins::SD_D0, pins::SD_D1, pins::SD_D2, pins::SD_D3);
-    return SD_MMC.begin("/sdcard", false);
-#endif
   }
 
   void togglePause() {

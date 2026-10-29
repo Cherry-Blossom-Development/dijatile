@@ -43,6 +43,16 @@ extern IoExpander expander;
 // and display/touch reset on the 1.46B). Call before any peripheral begin().
 bool begin();
 
+// Battery charge 0..100, or -1 if no battery reading makes sense (USB only).
+int batteryPercent();
+// 1 charging, 0 not, -1 unknown (the 1.46B has no charge detect).
+int charging();
+
+// microSD via SD_MMC, mounted at /sdcard (1-bit on the 1.46B, 4-bit on the
+// 1.54). Mounting twice is fine; unmount when the app that needed it ends.
+bool sdMount();
+void sdUnmount();
+
 // Releases the power latch. On battery this turns the board off; on USB it
 // does nothing visible.
 void powerOff();
