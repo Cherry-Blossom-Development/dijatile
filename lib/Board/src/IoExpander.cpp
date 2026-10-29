@@ -1,5 +1,7 @@
 #include "IoExpander.h"
 
+#include "I2cLock.h"
+
 namespace {
 constexpr uint8_t REG_INPUT = 0x00;
 constexpr uint8_t REG_OUTPUT = 0x01;
@@ -28,6 +30,7 @@ bool IoExpander::read(uint8_t bit) {
 }
 
 bool IoExpander::writeReg(uint8_t reg, uint8_t value) {
+  board::I2cGuard lock;
   wire_->beginTransmission(addr_);
   wire_->write(reg);
   wire_->write(value);
@@ -35,6 +38,7 @@ bool IoExpander::writeReg(uint8_t reg, uint8_t value) {
 }
 
 int IoExpander::readReg(uint8_t reg) {
+  board::I2cGuard lock;
   wire_->beginTransmission(addr_);
   wire_->write(reg);
   if (wire_->endTransmission(false) != 0) return -1;

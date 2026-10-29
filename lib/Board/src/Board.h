@@ -18,6 +18,7 @@
 #include "BoardConfig.h"
 #include "Buttons.h"
 #include "Display.h"
+#include "I2cLock.h"
 #include "Imu.h"
 #include "Microphone.h"
 #include "Speaker.h"

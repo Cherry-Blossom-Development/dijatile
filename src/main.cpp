@@ -3,6 +3,7 @@
 
 #include <Arduino.h>
 #include <Board.h>
+#include <Edge.h>
 #include <Net.h>
 
 #include "core/AppManager.h"
@@ -27,12 +28,38 @@ void setup()
   if (!net::begin()) Serial.println("ESP-NOW init failed");
   Serial.printf("I am %s\n", net::myName());
 
+  // Edge detection: does nothing if this tile has no edge board.
+  edge::ServiceConfig edgeCfg;
+  edgeCfg.wire = &Wire;
+  edgeCfg.lock = [](void *) { board::i2cLock(); };
+  edgeCfg.unlock = [](void *) { board::i2cUnlock(); };
+  edge::begin(edgeCfg);
+
   // Boots into the launcher. To make one app the home screen instead (skipping
   // the launcher entirely), pass it here: app_registry::byName("Blank Game").
   app_manager::begin();
 }
 
+// Serial console: one command per line ("edge status", ...).
+static void pollConsole() {
+  static char line[64];
+  static size_t len = 0;
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (len) {
+        line[len] = 0;
+        if (!edge::handleCommand(line, Serial)) Serial.printf("unknown command: %s\n", line);
+      }
+      len = 0;
+    } else if (len < sizeof(line) - 1) {
+      line[len++] = c;
+    }
+  }
+}
+
 void loop() 
 { 
+  pollConsole();
   app_manager::loop(); 
 }

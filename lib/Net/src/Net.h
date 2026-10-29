@@ -99,6 +99,17 @@ bool send(const uint8_t *mac, uint16_t appId, uint8_t type, const T &payload) {
   return send(mac, appId, type, &payload, sizeof(T));
 }
 
+// System traffic (app id 0) other than the HELLO beacon, e.g. edge detection. The
+// handler is called from poll() like an app handler, so it runs on whichever task
+// calls poll().
+void setSystemHandler(Handler handler, void *ctx);
+// Send system traffic. mac == nullptr broadcasts. Safe to call from any task.
+bool sendSystem(const uint8_t *mac, uint8_t type, const void *data, size_t len);
+template <typename T>
+bool sendSystem(const uint8_t *mac, uint8_t type, const T &payload) {
+  return sendSystem(mac, type, &payload, sizeof(T));
+}
+
 // Delivers queued packets to handler (app traffic only; beacons are handled
 // internally) and sends this device's beacon when due. Call every frame.
 void poll(Handler handler, void *ctx);

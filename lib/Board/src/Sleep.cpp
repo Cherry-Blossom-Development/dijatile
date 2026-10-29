@@ -70,7 +70,10 @@ WakeReason lightSleep() {
   }
 
   display.sleep();
-  imu.raw().disableGyroscope();
+  {
+    I2cGuard lock;
+    imu.raw().disableGyroscope();
+  }
   Vec3 rest;
   bool haveRest = sampleAccel(rest);
 
@@ -163,7 +166,10 @@ WakeReason lightSleep() {
   esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
   for (int i = 0; i < nButtons; i++) gpio_wakeup_disable((gpio_num_t)buttons[i]);
   if (touchPin >= 0) gpio_wakeup_disable((gpio_num_t)touchPin);  // no-op if already off
-  imu.raw().enableGyroscope();
+  {
+    I2cGuard lock;
+    imu.raw().enableGyroscope();
+  }
   display.wake();
   return reason;
 }

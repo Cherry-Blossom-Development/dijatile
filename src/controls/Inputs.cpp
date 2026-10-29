@@ -53,17 +53,22 @@ void Inputs::begin() {
     attachInterruptArg(enc[i].clk, onEncoderEdge, &enc[i], CHANGE);
     attachInterruptArg(enc[i].dt, onEncoderEdge, &enc[i], CHANGE);
   }
-  for (const Switch &sw : SWITCH_TABLE) pinMode(sw.pin, INPUT_PULLUP);
+  for (const Switch &sw : SWITCH_TABLE) {
+    if (sw.pin >= 0) pinMode(sw.pin, INPUT_PULLUP);
+  }
 
   // Learn each switch's resting level: whatever it reads (mostly) while nothing
   // is touching it is "released". Majority vote over ~30 ms.
   delay(10);
   int highCount[SWITCHES] = {};
   for (int sample = 0; sample < 15; sample++) {
-    for (int i = 0; i < SWITCHES; i++) highCount[i] += digitalRead(SWITCH_TABLE[i].pin) == HIGH;
+    for (int i = 0; i < SWITCHES; i++) {
+      if (SWITCH_TABLE[i].pin >= 0) highCount[i] += digitalRead(SWITCH_TABLE[i].pin) == HIGH;
+    }
     delay(2);
   }
   for (int i = 0; i < SWITCHES; i++) {
+    if (SWITCH_TABLE[i].pin < 0) continue;  // switched off in this build
     activeLow_[i] = highCount[i] > 7;  // rests high: pressing pulls it low
     Serial.printf("[inputs] %s rests %s: pressed = %s\n", sourceTag(SWITCH_TABLE[i].source),
                   activeLow_[i] ? "HIGH" : "LOW", activeLow_[i] ? "LOW" : "HIGH");
@@ -88,6 +93,7 @@ void Inputs::poll() {
   }
 
   for (int i = 0; i < SWITCHES; i++) {
+    if (SWITCH_TABLE[i].pin < 0) continue;
     bool raw = (digitalRead(SWITCH_TABLE[i].pin) == LOW) == activeLow_[i];
     if (raw != raw_[i]) {
       raw_[i] = raw;

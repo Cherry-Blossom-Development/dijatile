@@ -13,6 +13,7 @@ IoExpander expander;
 #endif
 
 bool begin() {
+  i2cLockInit();
   // Keep the board powered once the user lets go of the power button.
   pinMode(pins::PWR_HOLD, OUTPUT);
   digitalWrite(pins::PWR_HOLD, HIGH);

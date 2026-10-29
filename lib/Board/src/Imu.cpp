@@ -4,8 +4,10 @@
 #include <math.h>
 
 #include "BoardConfig.h"
+#include "I2cLock.h"
 
 bool Imu::begin() {
+  board::I2cGuard lock;
   if (!qmi_.begin(Wire, i2c_addr::QMI8658, pins::I2C_SDA, pins::I2C_SCL)) {
     log_e("QMI8658 not found");
     return false;
@@ -38,6 +40,7 @@ void Imu::noteSample(const Vec3 &a) {
 }
 
 bool Imu::read(Vec3 &accel, Vec3 &gyro) {
+  board::I2cGuard lock;
   if (!qmi_.getDataReady()) return false;
   qmi_.getAccelerometer(accel.x, accel.y, accel.z);
   qmi_.getGyroscope(gyro.x, gyro.y, gyro.z);
@@ -46,6 +49,7 @@ bool Imu::read(Vec3 &accel, Vec3 &gyro) {
 }
 
 bool Imu::readAccel(Vec3 &accel) {
+  board::I2cGuard lock;
   if (!qmi_.getDataReady()) return false;
   if (!qmi_.getAccelerometer(accel.x, accel.y, accel.z)) return false;
   noteSample(accel);

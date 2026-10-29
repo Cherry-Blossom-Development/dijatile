@@ -1,21 +1,17 @@
-; Copy this to platformio_local.ini (git-ignored) and fill in your ports.
-; With two tiles plugged in, PlatformIO can't guess which port is which, so
-; each env gets its own. Find them with:  pio device list
-; The ESP32 USB ports show up as "USB JTAG/serial debug unit"; the SER= value is
-; the chip's MAC, so you can tell the tiles apart (the Nearby app and the
-; serial monitor print each tile's name, dj-XXXX, made from the last two MAC bytes).
+; Copy this to platformio_local.ini (git-ignored) and fill in your boards.
 ;
-; Then:  pio run -e TheRoundOne -e TheControlsOne -t upload   flashes both,
-; each to its own port.
+; Each environment uploads to the board with this USB serial number, wherever it is
+; plugged in (scripts/select_port.py). The serial number is the chip's MAC: run
+;   pio device list
+; and look for SER= on the "USB JTAG/serial debug unit" lines. The tile's name
+; (dj-XXXX, shown in the Nearby app and on serial) is the last two bytes.
+; If the board isn't plugged in, the upload stops instead of flashing another tile.
 
 [env:TheRoundOne]
-upload_port = /dev/cu.usbmodemXXXX
-monitor_port = /dev/cu.usbmodemXXXX
+custom_usb_serial = XX:XX:XX:XX:XX:XX
 
 [env:TheSquareOne]
-upload_port = /dev/cu.usbmodemXXXX
-monitor_port = /dev/cu.usbmodemXXXX
+custom_usb_serial = XX:XX:XX:XX:XX:XX
 
 [env:TheControlsOne]
-upload_port = /dev/cu.usbmodemXXXX
-monitor_port = /dev/cu.usbmodemXXXX
+custom_usb_serial = XX:XX:XX:XX:XX:XX

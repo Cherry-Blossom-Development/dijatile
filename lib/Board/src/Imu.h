@@ -15,6 +15,7 @@ class Imu {
   // Returns false when no new sample is ready; outputs are left unchanged.
   bool read(Vec3 &accel, Vec3 &gyro);
   bool readAccel(Vec3 &accel);
+  // Hold a board::I2cGuard while you use it: it talks over the shared I2C bus.
   SensorQMI8658 &raw() { return qmi_; }
   // millis() of the last real movement among the samples read so far.
   // Gradual drift is ignored, so only apps that read the IMU register motion.

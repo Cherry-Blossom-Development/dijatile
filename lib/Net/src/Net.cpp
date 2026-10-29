@@ -46,6 +46,8 @@ uint8_t mac[6];
 char name[16];
 uint16_t currentApp = 0;
 uint8_t activeChannel = 1;
+Handler systemHandler = nullptr;
+void *systemCtx = nullptr;
 TileKind myKind = TileKind::Display;
 uint8_t myBoard = BOARD_UNKNOWN;
 uint32_t lastBeacon = 0;
@@ -202,6 +204,15 @@ void setCurrentApp(uint16_t appId) {
   lastBeacon = 0;  // announce the change right away
 }
 
+void setSystemHandler(Handler handler, void *ctx) {
+  systemCtx = ctx;
+  systemHandler = handler;
+}
+
+bool sendSystem(const uint8_t *mac, uint8_t type, const void *data, size_t len) {
+  return sendRaw(mac ? mac : BROADCAST_MAC, 0, type, data, len);
+}
+
 bool broadcast(uint16_t appId, uint8_t type, const void *data, size_t len) {
   return sendRaw(BROADCAST_MAC, appId, type, data, len);
 }
@@ -224,6 +235,8 @@ void poll(Handler handler, void *ctx) {
         Hello hello;
         memcpy(&hello, payload, sizeof(hello));
         notePeer(p, hello);
+      } else if (h.type != SYS_HELLO && systemHandler) {
+        systemHandler(Message{p.from, 0, h.type, payload, len, p.rssi, p.broadcast}, systemCtx);
       }
       continue;
     }

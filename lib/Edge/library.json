@@ -1,0 +1,7 @@
+{
+  "name": "Edge",
+  "version": "0.1.0",
+  "description": "IR edge detection: find the tile touching each edge and exchange IDs over ESP-NOW. The core logic is hardware-independent and unit-tested on the desktop.",
+  "frameworks": "*",
+  "platforms": "*"
+}

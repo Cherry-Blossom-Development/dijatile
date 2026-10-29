@@ -8,6 +8,9 @@
 // declines. Hold A and B together for 1.5 s to unpair.
 
 #include <Arduino.h>
+#if defined(EDGE_TEST)
+#include <Edge.h>
+#endif
 #include <ControlsLink.h>
 #include <Net.h>
 #include <U8g2lib.h>
@@ -157,6 +160,56 @@ void drawIdle() {
   oled.drawStr(0, 62, "waiting to pair");
 }
 
+#if defined(EDGE_TEST)
+// Edge detection bench test: what the east edge sees, in the same terms as the Edge
+// Test app on the display tiles.
+void drawEdgeTest() {
+  edge::Snapshot snap;
+  edge::snapshot(&snap);
+  oled.setFont(u8g2_font_6x10_tf);
+  oled.drawStr(0, 9, "EDGE TEST  E");
+  oled.drawStr(128 - oled.getStrWidth(net::myName()), 9, net::myName());
+  oled.drawHLine(0, 12, 128);
+  oled.setFont(u8g2_font_5x7_tf);
+  if (!snap.active) {
+    oled.drawStr(0, 30, "edge service not running");
+    return;
+  }
+  const edge::EdgeInfo &i = snap.edge[edge::E];
+  char line[40];
+  if (i.linked) {
+    snprintf(line, sizeof(line), "LINKED dj-%02X%02X their %s r%u", i.neighbor.mac[4], i.neighbor.mac[5],
+             edge::edgeName(i.neighbor.theirEdge), edge::rotation(edge::E, i.neighbor.theirEdge));
+  } else if (i.blinded) {
+    snprintf(line, sizeof(line), "BLINDED (ambient light?)");
+  } else {
+    static const char *names[] = {"no neighbor", "neighbor seen", "challenging", "responding", "linked"};
+    snprintf(line, sizeof(line), "%s", names[(int)i.state]);
+  }
+  oled.drawStr(0, 21, line);
+
+  // Level meter: share of recent time the sensor saw light, with a peak marker.
+  if (i.millivolts >= 0) snprintf(line, sizeof(line), "%4dmV", i.millivolts);  // analog detector
+  else snprintf(line, sizeof(line), "%s %3u%%", i.level ? "dark " : "LIGHT", i.lightPercent);
+  oled.drawStr(0, 30, line);
+  if (i.millivolts >= 0) oled.drawStr(30, 30, i.level ? "d" : "L");
+  oled.drawFrame(44, 24, 84, 7);
+  oled.drawBox(45, 25, 82 * i.lightPercent / 100, 5);
+  oled.drawVLine(45 + 82 * i.peakPercent / 100, 23, 9);
+
+  const edge::LinkStats &k = snap.stats;
+  snprintf(line, sizeof(line), "bcn %lu sent %lu ok %lu fail %lu", (unsigned long)i.beaconCount, (unsigned long)snap.beaconsSent,
+           (unsigned long)k.succeeded, (unsigned long)(k.failBadCode + k.failNoEcho + k.failBadEcho + k.failNoLink + k.failNoAck));
+  oled.drawStr(0, 39, line);
+  uint32_t now = millis();
+  for (int n = 0; n < snap.eventCount && n < 2; n++) {
+    snprintf(line, sizeof(line), "%lus %s", (unsigned long)((now - snap.events[n].ms) / 1000), snap.events[n].text);
+    oled.drawStr(0, 48 + n * 8, line);
+  }
+  oled.drawStr(0, 63, snap.heldLeds ? "LED ON  (B: off)" : "B: hold LED on");
+}
+#endif
+
 void drawIncoming() {
   oled.setFont(u8g2_font_6x10_tf);
   oled.drawStr(0, 10, "PAIR REQUEST");
@@ -195,7 +248,13 @@ void draw() {
   uint32_t started = millis();
   oled.clearBuffer();
   switch (state) {
-    case State::Idle: drawIdle(); break;
+    case State::Idle:
+#if defined(EDGE_TEST)
+      drawEdgeTest();
+#else
+      drawIdle();
+#endif
+      break;
     case State::Incoming: drawIncoming(); break;
     case State::Paired: drawPaired(); break;
   }
@@ -224,10 +283,37 @@ void setup() {
   inputs.begin();
   net::setIdentity(net::TileKind::Controls, net::BOARD_CONTROLS_C3);
   if (!net::begin()) Serial.println("ESP-NOW init failed");
+#if defined(EDGE_TEST)
+  edge::begin(edge::ServiceConfig());  // east edge wired straight to GPIOs, no I2C
+  edge::setMonitor(true);              // fast sampling for the level meter
+#endif
   Serial.printf("I am %s\n", net::myName());
 }
 
+#if defined(EDGE_TEST)
+// Serial console: one command per line ("edge status", ...).
+static void pollConsole() {
+  static char line[64];
+  static size_t len = 0;
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\n' || c == '\r') {
+      if (len) {
+        line[len] = 0;
+        if (!edge::handleCommand(line, Serial)) Serial.printf("unknown command: %s\n", line);
+      }
+      len = 0;
+    } else if (len < sizeof(line) - 1) {
+      line[len++] = c;
+    }
+  }
+}
+#endif
+
 void loop() {
+#if defined(EDGE_TEST)
+  pollConsole();
+#endif
   static uint32_t lastLoopStart = 0;
   uint32_t loopStart = millis();
   if (lastLoopStart && loopStart - lastLoopStart > loopMaxMs) loopMaxMs = loopStart - lastLoopStart;
@@ -239,6 +325,15 @@ void loop() {
   InputEvent e;
   while (inputs.next(e)) {
     dirty = true;
+#if defined(EDGE_TEST)
+    // Bench test: B holds the east LED on, for checking it by eye or camera.
+    if (state == State::Idle && e.source == BTN_B && e.value == 1) {
+      edge::Snapshot snap;
+      edge::snapshot(&snap);
+      edge::holdLeds(snap.heldLeds ? 0 : (uint8_t)(1u << edge::E));
+      continue;
+    }
+#endif
     if (state == State::Incoming) {
       if (e.source == BTN_A && e.value == 1) answer(true);
       if (e.source == BTN_B && e.value == 1) answer(false);

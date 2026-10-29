@@ -7,6 +7,7 @@
 
 #include "BoardConfig.h"
 #include "Display.h"
+#include "I2cLock.h"
 
 #if defined(BOARD_WS_146B)
 #include "touch/TouchSpd2010.h"
@@ -36,6 +37,7 @@ constexpr uint32_t CST816_RECHECK_MS = 50;
 }  // namespace
 
 bool Touch::begin() {
+  board::I2cGuard lock;
 #if defined(BOARD_WS_146B)
   available_ = driver.begin(Wire, i2c_addr::SPD2010_TOUCH);
 #else
@@ -48,6 +50,7 @@ bool Touch::begin() {
 }
 
 int Touch::readRaw(int16_t &x, int16_t &y) {
+  board::I2cGuard lock;
 #if defined(BOARD_WS_146B)
   uint16_t rx, ry;
   int r = driver.read(rx, ry);

@@ -3,6 +3,7 @@
 #include <Arduino.h>
 
 #include "BoardConfig.h"
+#include "I2cLock.h"
 
 #if BOARD_AUDIO_SHARED_BUS
 #include "codecs/es7210.h"
@@ -69,6 +70,7 @@ bool adcReady = false;
 
 bool initDac() {
   if (dacReady) return true;
+  board::I2cGuard lock;
   es8311_handle_t es = es8311_create(I2C_NUM_0, i2c_addr::ES8311);
   if (!es) return false;
   const es8311_clock_config_t clk = {
@@ -90,6 +92,7 @@ bool initDac() {
 
 bool initAdc() {
   if (adcReady) return true;
+  board::I2cGuard lock;
   es7210_i2c_config_t i2c = {.i2c_port = I2C_NUM_0, .i2c_addr = i2c_addr::ES7210};
   es7210_dev_handle_t es = nullptr;
   if (es7210_new_codec(&i2c, &es) != ESP_OK) return false;

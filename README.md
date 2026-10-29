@@ -59,6 +59,7 @@ Built in:
 | **Music** | Plays the audio files in the SD card root. Tap to pause, swipe left to skip, swipe up/down for volume. |
 | **Synth** | Monophonic synth. Touch the ring around the edge to play a note (C at the top, clockwise); slide to change notes. The middle has the controls: waveform, octave, detune, Moog-style filter cutoff / resonance / envelope, and release. |
 | **Tilt Theremin** | A tilt-controlled synth built on [Mozzi](https://sensorium.github.io/Mozzi/). Tilt left/right for pitch, top edge up for volume; drag the rim arcs for timbre, range, vibrato, scale (swipe the middle for echo and gate). See `src/specs/tilt-theremin-spec.md`. |
+| **Edge Test** | Live view of IR edge detection for bench testing: each edge's state, sensor, who is linked there and how they are rotated, counters and a short event log; beeps on join and leave. Tap toggles range-test mode. |
 | **Nearby** | Lists devices in ESP-NOW range and what they're running. Tap to ping them: they beep and flash in your color. |
 
 ## Layout
@@ -76,6 +77,8 @@ src/games/                one file per game
 src/apps/                 one file per utility app
 lib/Net/                  ESP-NOW: peer discovery, per-app messages, tile kinds
 lib/ControlsLink/         message format between a display tile and the Controls tile
+lib/Edge/                 IR edge detection (which tile touches which edge), unit-tested
+docs/                     protocols.md (all wire formats) and edge-detection.md
 src/controls/             Controls tile firmware (ESP32-C3), its own PlatformIO env
 lib/Board/src/
   BoardConfig.h           per-board pin maps, I2C addresses, IMU axis mapping
@@ -196,9 +199,10 @@ Wiring (pins live in `src/controls/pins.h`):
 | Encoder 1 | SW 10, CLK 9, DT 8 |
 | Encoder 2 | SW 4, CLK 3, DT 5 |
 
-The board is a Seeed XIAO ESP32-C3, whose silkscreen "D" numbers differ from the
-GPIO numbers (D1 = GPIO 3, D2 = GPIO 4, ...; the map is in `pins.h`). Switches go
-to ground (internal pull-ups). GPIO 8 and 9 are the C3's strapping pins: fine as
+The board is an ESP32-C3 SuperMini, whose silkscreen shows the GPIO numbers
+directly. The encoder push switches go to ground; buttons A and B are wired
+active-high (the firmware detects each switch's polarity at boot, so keep your
+hands off them while it starts). GPIO 8 and 9 are the C3's strapping pins: fine as
 inputs, but a CLK contact held closed on GPIO 9 during reset boots the chip into
 download mode. If an encoder counts backwards, flip
 `ENC1_REVERSED` / `ENC2_REVERSED`.
