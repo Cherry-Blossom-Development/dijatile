@@ -26,8 +26,12 @@ Firmware for the Dijatile tiles: two ESP32-S3 display tiles (Waveshare 1.46B rou
 
 ## Building and flashing
 
-- Use `~/.platformio/penv/bin/pio`. The older global `pio` uninstalls the
-  pioarduino platform.
+- Use the global `pio` (`/Library/Frameworks/Python.framework/Versions/3.12/bin/pio`,
+  Core 6.2.0); it's the one that builds this project. As of 2026-10-30,
+  `~/.platformio/penv/bin/pio` reports `6.2.0.post1`, which the pioarduino platform
+  (needs `>=6.2.0`) rejects: running it *removes* the installed platform, and the next
+  build has to download it again. Check `pio --version` if builds start failing with
+  `IncompatiblePlatform`.
 - Uploads find each board by its **USB serial number** (the chip's MAC), not by port
   name, via `scripts/select_port.py` and `custom_usb_serial` in the git-ignored
   `platformio_local.ini` (template: `platformio_local.ini.example`). Port names
@@ -42,8 +46,9 @@ Firmware for the Dijatile tiles: two ESP32-S3 display tiles (Waveshare 1.46B rou
 
 ## Gotchas
 
-- A display tile light-sleeps after 5 idle minutes and its USB port disappears.
-  Wake or replug it before flashing.
+- After 5 idle minutes a display tile blanks its screen. Plugged into a computer it
+  stays awake and its USB port stays up; on battery or a charger it light-sleeps and the
+  USB port disappears (wake it before flashing). See `src/specs/app-framework.md`.
 - Never let `Serial` block: `Serial.setTxTimeoutMs(0)` is set in both firmwares.
 - Arduino defines macros like `OCT`, `DEC`, `TWO_PI`, `PI`: avoid those names.
 - Read `millis()` after code that stamps times, or unsigned subtraction wraps.

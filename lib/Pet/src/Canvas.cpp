@@ -270,7 +270,8 @@ void Canvas::textCentered(int cx, int y, const char *s, uint16_t c, int scale) {
 
 // ---------------------------------------------------------------- sprites
 
-void Canvas::blit(const uint8_t *idx, int w, int h, const uint16_t *pal, int x, int y, uint8_t rot, bool flipX) {
+void Canvas::blit(const uint8_t *idx, int w, int h, const uint16_t *pal, int x, int y, uint8_t rot, bool flipX,
+                  int scale) {
   rot &= 3;
   for (int sy = 0; sy < h; sy++) {
     const uint8_t *row = idx + sy * w;
@@ -285,7 +286,13 @@ void Canvas::blit(const uint8_t *idx, int w, int h, const uint16_t *pal, int x, 
         case 2: dx = w - 1 - ux; dy = h - 1 - sy; break;
         default: dx = sy; dy = w - 1 - ux; break;
       }
-      plot(vx_ + x + dx, vy_ + y + dy, pal[v]);
+      if (scale == 1) {
+        plot(vx_ + x + dx, vy_ + y + dy, pal[v]);
+      } else {
+        int px = vx_ + x + dx * scale, py = vy_ + y + dy * scale;
+        for (int j = 0; j < scale; j++)
+          for (int i = 0; i < scale; i++) plot(px + i, py + j, pal[v]);
+      }
     }
   }
 }

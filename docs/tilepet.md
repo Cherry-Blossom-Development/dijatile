@@ -24,7 +24,9 @@ convention: BOOT moves on, PWR selects.
 | BOOT long press | home (reserved) | home (reserved) |
 | PWR held 3 s | power off (reserved); the pet saves at 1.5 s | same |
 
-On the pet screen, next or select opens the menu, and back toggles the status bar.
+On the pet screen, next or select opens the menu, and back hides or shows the status bar. The status bar shows the pet's name, alerts (attention, sick, poops, music, mic) and the battery on top, and meters for food, happiness and energy below.
+
+The pet talks: every 12–20 s it says what it needs ("I'M HUNGRY!", "I'M SAD...", "I'M SLEEPY", "IT'S STINKY!"), and otherwise chats now and then. Bold pets talk more than shy ones.
 
 Touch does everything the buttons do:
 
@@ -50,14 +52,14 @@ Moving the tile matters too:
 - **Shaking** makes it dizzy, with spiral eyes and stars. Shaking hard for long makes it nauseous, and doing that twice in 10 minutes makes it scared of you for a while.
 - **Spinning** it flat on the table does the same at half strength.
 - **Turning the tile slowly** makes the pet cling to the old floor and climb down to the new one. A quick turn or a flip makes it tumble. Props slide around too.
-- **On the round tile** the room is a round bowl that fills the screen. The floor is the curved rim, so the pet always heads for the lowest point: tilt the tile and it walks or slides round the curve. A quick turn or a flip still throws it across. Menus and games appear as a square panel in the middle.
+- **On the round tile** the room is a round bowl that fills the screen, and the pet and its things (bowl, ball, food, poops) are drawn twice as big. The floor is the curved rim, so the pet always heads for the lowest point: tilt the tile and it walks or slides round the curve. A quick turn or a flip still throws it across. Menus and games appear as a square panel in the middle.
 - **While music plays**, shaking in time with the beat counts as maracas. It excites the pet instead of confusing it.
 
 ## Menu
 
 | Item | |
 |---|---|
-| Feed | Meal or snack. A full pet refuses meals. A sick pet only takes medicine. Snacks when full cost health. |
+| Feed | Meal or snack. The food goes in the bowl and the pet walks over to eat it. A full pet refuses meals. A sick pet only takes medicine. Snacks when full cost health. |
 | Play | Tilt Catch (tilt to catch fruit, avoid rocks and poop, 30 s), Which Way? (guess where it will look, 5 rounds), Copycat (repeat the tone sequence). A tired or sick pet refuses. |
 | Clean | Removes every poop. When very dirty it becomes a bath. |
 | Lights | Puts the pet to sleep if its energy is below 70, or wakes it. |
@@ -105,7 +107,7 @@ Over USB serial at 115200. Log lines are short and greppable: `PET ...`, `IMU ..
 ```
 app Tilepet                   open the game from anywhere ("app" alone goes home)
 pet status                    stats, stage, mood, motion state, floor, body state
-pet loop                      main-loop gap since the last call: average and worst, in ms
+pet loop                      main-loop gap since the last call: average and worst, in ms; plus average tick, render and 2x-copy times
 pet set <stat> <value>        hunger happy energy clean health weight
 pet stage <name>              egg baby child teen adult elder
 pet sick | pet poop | pet hatch (also: grow to the next stage)
@@ -199,7 +201,7 @@ The animations, palette slots and anchors are listed in `lib/Pet/src/Art.h`.
   - No deep sleep. The app manager's light sleep is used.
   - The SD `.wav` sound-effect overrides are not implemented.
 - **Needs checking on hardware:**
-  - **IMU axes on the 1.46B.** Especially `imu_axes::Z_SIGN`; the host flips it by itself if the screen gets touched while the IMU reads face down. The 1.54's axes and touch are checked.
+  - **IMU x/y axes and touch on the 1.46B.** The z axis is checked on both tiles; if it is ever wrong, the host flips it by itself when the screen gets touched while the IMU reads face down. The 1.54's axes and touch are checked.
   - **Battery divider** (`battery::DIVIDER`).
   - **Latency values** for dancing.
   - **Mic gain and thresholds** with real rooms.

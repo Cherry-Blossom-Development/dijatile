@@ -72,6 +72,9 @@ const uint16_t NOTE_C[] = {K_YEL};
 const char *HEART[] = {".X.X.", "XXXXX", ".XXX.", "..X.."};
 const uint16_t HEART_C[] = {K_PINK};
 const char *MIC[] = {".X.", "XXX", "XXX", ".X.", "XXX"};
+const char *BOLT[] = {"..XX", ".XX.", "XXXX", ".XX.", "XX.."};
+const uint16_t BOLT_C[] = {K_YEL};
+const char *FOOD_MEAL[] = {"..oooo..", ".oOoOOo.", "oOGoOGoO"};  // a meal heaped in the bowl
 const uint16_t MIC_C[] = {K_RED};
 
 #define I(rows, keys, colors) {rows, (uint8_t)(sizeof(rows) / sizeof(rows[0])), keys, colors}
@@ -103,10 +106,10 @@ const uint16_t GRAVE_C[] = {K_OUT, K_GREY};
 
 // String art centred on (cx, cy), turned for a wall.
 void artAt(Canvas &c, const char *const *rows, int n, int cx, int cy, const char *keys, const uint16_t *cols,
-           uint8_t rot) {
-  int w = (int)strlen(rows[0]), h = n;
+           uint8_t rot, int scale = 1) {
+  int w = (int)strlen(rows[0]) * scale, h = n * scale;
   int bw = rot % 2 ? h : w, bh = rot % 2 ? w : h;
-  c.art(rows, n, cx - bw / 2, cy - bh / 2, keys, cols, rot);
+  c.art(rows, n, cx - bw / 2, cy - bh / 2, keys, cols, rot, scale);
 }
 
 }  // namespace
@@ -279,41 +282,52 @@ void Scene::drawRoundRoom(Canvas &c, PetCore &core, Floor f, bool beat) {
 
 void Scene::drawProps(Canvas &c, PetCore &core) {
   const Floor floor = core.floorSel.floor();
+  const int k = core.world.arena().petScale;  // props grow with the pet on the round tile
   for (int i = 0; i < World::MAX_PROPS; i++) {
     const Prop &p = core.world.props()[i];
     if (p.kind == PropKind::None) continue;
     uint8_t rot = floorRot(p.resting ? p.restOn : floor);
     int x = (int)lroundf(p.x), y = (int)lroundf(p.y);
     switch (p.kind) {
-      case PropKind::Bowl: artAt(c, BOWL, 4, x, y, "XW", BOWL_C, rot); break;
-      case PropKind::Poop: {
-        artAt(c, POOP, 5, x, y, "bB", POOP_C, rot);
-        // stink lines
-        if (((int)(t_ * 3 + i)) % 2 == 0) {
-          Vec2 u = floorDown(p.restOn) * -1.0f;
-          c.pset(x + (int)(u.x * 5) - 1, y + (int)(u.y * 5), K_DGREY);
-          c.pset(x + (int)(u.x * 6) + 1, y + (int)(u.y * 6), K_DGREY);
+      case PropKind::Bowl: {
+        artAt(c, BOWL, 4, x, y, "XW", BOWL_C, rot, k);
+        if (p.food != PropKind::None) {
+          // food sits in the bowl, poking out over its rim
+          Vec2 u = floorDown(p.resting ? p.restOn : floor) * -1.0f;
+          int fx = x + (int)lroundf(u.x * 3 * k), fy = y + (int)lroundf(u.y * 3 * k);
+          if (p.food == PropKind::Snack) artAt(c, SNACK, 5, fx, fy, "cC", SNACK_C, rot, k);
+          else artAt(c, FOOD_MEAL, 3, fx, fy, "oOG", MEAL_C, rot, k);
         }
         break;
       }
-      case PropKind::Meal: artAt(c, MEAL, 5, x, y, "oOGX", MEAL_C, rot); break;
-      case PropKind::Snack: artAt(c, SNACK, 5, x, y, "cC", SNACK_C, rot); break;
+      case PropKind::Poop: {
+        artAt(c, POOP, 5, x, y, "bB", POOP_C, rot, k);
+        // stink lines
+        if (((int)(t_ * 3 + i)) % 2 == 0) {
+          Vec2 u = floorDown(p.restOn) * -1.0f;
+          c.fillRect(x + (int)(u.x * 5 * k) - k, y + (int)(u.y * 5 * k), k, k, K_DGREY);
+          c.fillRect(x + (int)(u.x * 6 * k) + k, y + (int)(u.y * 6 * k), k, k, K_DGREY);
+        }
+        break;
+      }
+      case PropKind::Meal: artAt(c, MEAL, 5, x, y, "oOGX", MEAL_C, rot, k); break;
+      case PropKind::Snack: artAt(c, SNACK, 5, x, y, "cC", SNACK_C, rot, k); break;
       case PropKind::Ball: {
         c.fillCircle(x, y, (int)p.half, K_RED);
         c.hline(x - (int)p.half + 1, y, (int)p.half * 2 - 1, K_WHITE);
         c.circle(x, y, (int)p.half, K_OUT);
         break;
       }
-      case PropKind::Medicine: artAt(c, BOTTLE, 7, x, y, "XWR", BOTTLE_C, rot); break;
+      case PropKind::Medicine: artAt(c, BOTTLE, 7, x, y, "XWR", BOTTLE_C, rot, k); break;
       case PropKind::Bug: {
-        c.fillRect(x - 1, y - 1, 2, 2, K_OUT);
+        c.fillRect(x - k, y - k, 2 * k, 2 * k, K_OUT);
         bool up = ((int)(t_ * 12)) % 2;
-        c.pset(x - 2, y - (up ? 2 : 1), K_WHITE);
-        c.pset(x + 1, y - (up ? 2 : 1), K_WHITE);
+        c.fillRect(x - 2 * k, y - (up ? 2 : 1) * k, k, k, K_WHITE);
+        c.fillRect(x + k, y - (up ? 2 : 1) * k, k, k, K_WHITE);
         break;
       }
-      case PropKind::Fruit: artAt(c, APPLE, 5, x, y, "GRW", APPLE_C, rot); break;
-      case PropKind::Rock: artAt(c, ROCK, 4, x, y, "Gg", ROCK_C, rot); break;
+      case PropKind::Fruit: artAt(c, APPLE, 5, x, y, "GRW", APPLE_C, rot, k); break;
+      case PropKind::Rock: artAt(c, ROCK, 4, x, y, "Gg", ROCK_C, rot, k); break;
       default: break;
     }
   }
@@ -322,7 +336,8 @@ void Scene::drawProps(Canvas &c, PetCore &core) {
 // ============================================================ pet
 
 void Scene::drawPetAt(Canvas &c, const SpriteSet &s, const Genome &g, Demeanour d, Anim a, int frame,
-                      const FaceState &face, const PaletteMods &mods, int cx, int cy, uint8_t rot, bool flip) {
+                      const FaceState &face, const PaletteMods &mods, int cx, int cy, uint8_t rot, bool flip,
+                      int scale) {
   if (!s.ready()) return;
   static uint8_t scratch[48 * 48];
   const int box = s.box();
@@ -330,7 +345,7 @@ void Scene::drawPetAt(Canvas &c, const SpriteSet &s, const Genome &g, Demeanour 
   drawFace(scratch, box, s.info(a, frame), g, s.stage(), face);
   uint16_t pal[16];
   buildPalette(g, s.stage(), d, mods, pal);
-  c.blit(scratch, box, box, pal, cx - box / 2, cy - box / 2, rot, flip);
+  c.blit(scratch, box, box, pal, cx - box * scale / 2, cy - box * scale / 2, rot, flip, scale);
 }
 
 void Scene::drawPet(Canvas &c, PetCore &core, const Brain &brain) {
@@ -338,8 +353,9 @@ void Scene::drawPet(Canvas &c, PetCore &core, const Brain &brain) {
   const Brain::View &v = brain.view();
   if (!core.sprites.ready()) return;
   Vec2 down = floorDown(b.surface), right = floorRight(b.surface);
-  float cx = b.x - down.x * v.hop + right.x * v.jitter;
-  float cy = b.y - down.y * v.hop + right.y * v.jitter;
+  const float k = (float)core.world.arena().petScale;
+  float cx = b.x - (down.x * v.hop - right.x * v.jitter) * k;
+  float cy = b.y - (down.y * v.hop - right.y * v.jitter) * k;
 
   if (brain.seq() == Seq::Farewell) {
     float t = brain.seqTime();
@@ -351,7 +367,7 @@ void Scene::drawPet(Canvas &c, PetCore &core, const Brain &brain) {
       m.flash = minf(1, t / 4);
       if (t < 4.5f)
         drawPetAt(c, core.sprites, core.genome, core.life.demeanour, v.anim, v.frame, v.face, m, (int)cx, (int)cy,
-                  b.rot(), v.flip);
+                  b.rot(), v.flip, core.world.arena().petScale);
       return;
     }
     if (brain.farewellKind() == Farewell::Died) {
@@ -366,7 +382,7 @@ void Scene::drawPet(Canvas &c, PetCore &core, const Brain &brain) {
   }
 
   drawPetAt(c, core.sprites, core.genome, core.life.demeanour, v.anim, v.frame, v.face, v.pal, (int)lroundf(cx),
-            (int)lroundf(cy), b.rot(), v.flip);
+            (int)lroundf(cy), b.rot(), v.flip, core.world.arena().petScale);
 
   // effects around the head
   Vec2 up = down * -1.0f;
@@ -475,51 +491,73 @@ void Scene::drawHud(Canvas &c, PetCore &core, const Brain &brain, uint8_t uiRot,
     float u, v;
     c.toLocal(head.x, head.y, u, v);
     int w = Canvas::textWidth(core.speech) + 6, h = 9;
-    int bx = clampi((int)u - w / 2, 1, vs - 1 - w), by = clampi((int)v - h - 2, 11, vs - 10 - h);
+    int top = statusBar ? STATUS_H + 2 : 11;
+    int bx = clampi((int)u - w / 2, 1, vs - 1 - w), by = clampi((int)v - h - 2, top, vs - 10 - h);
     c.fillRect(bx, by, w, h, K_WHITE);
     c.rect(bx, by, w, h, K_OUT);
     c.text(bx + 3, by + 2, core.speech, K_OUT);
   }
 
   if (statusBar) {
-    c.shade(x0, 0, Canvas::UI, 9, 0.35f);
-    int x = x0 + 2;
-    if (core.life.callH >= 0 && ((int)(t_ * 3)) % 2 == 0) {
-      c.text(x, 2, "!", col::WARN);
-      x += 5;
-    }
-    if (core.life.sick) {
-      c.text(x, 2, "+", col::BAD);
-      x += 5;
-    }
-    if (core.musicPlaying) {
-      c.text(x, 2, "\x02", K_YEL);
-      x += 5;
+    // Row 1: the pet's name on the left; alerts and the battery on the right.
+    // Row 2: food, happiness and energy meters.
+    c.shade(x0, 0, Canvas::UI, STATUS_H, 0.35f);
+    c.text(x0 + 2, 2, core.name, col::ACCENT);
+    int rx = x0 + Canvas::UI - 2;  // alerts are placed right to left
+    if (battery >= 0) {
+      bool low = battery < tune::BATTERY_LOW_PCT;
+      rx -= 12;
+      if (!low || ((int)(t_ * 2)) % 2 == 0) {
+        uint16_t bc = low ? col::BAD : (battery < 40 ? col::WARN : col::GOOD);
+        c.rect(rx, 2, 11, 5, col::TEXT);
+        c.vline(rx + 11, 3, 3, col::TEXT);
+        c.fillRect(rx + 1, 3, (battery * 9 + 50) / 100, 3, bc);
+      }
+      if (charging == 1) {
+        rx -= 5;
+        c.text(rx, 2, "+", K_YEL);
+      }
+      rx -= 2;
     }
     if (brain.micOn()) {
-      c.art(MIC, 5, x, 2, "X", MIC_C);
-      x += 5;
+      rx -= 4;
+      c.art(MIC, 5, rx, 2, "X", MIC_C);
+    }
+    if (core.musicPlaying) {
+      rx -= 4;
+      c.text(rx, 2, "\x02", K_YEL);
     }
     int poops = core.world.countProps(PropKind::Poop);
     if (poops) {
       char b[6];
       snprintf(b, sizeof(b), "%dX", poops);
-      c.art(POOP, 5, x, 2, "bB", POOP_C);
-      x += 8;
-      c.text(x, 2, b, K_LBRN);
-      x += Canvas::textWidth(b) + 2;
+      rx -= Canvas::textWidth(b) + 1;
+      c.text(rx, 2, b, K_LBRN);
+      rx -= 8;
+      c.art(POOP, 5, rx, 2, "bB", POOP_C);
+    }
+    if (core.life.sick) {
+      rx -= 5;
+      c.text(rx, 2, "+", col::BAD);
+    }
+    if (core.life.callH >= 0 && ((int)(t_ * 3)) % 2 == 0) {
+      rx -= 5;
+      c.text(rx, 2, "!", col::WARN);
     }
     if (clock && clock[0]) c.textCentered(x0 + 60, 2, clock, col::TEXT);
-    // battery
-    if (battery >= 0) {
-      bool low = battery < tune::BATTERY_LOW_PCT;
-      if (!low || ((int)(t_ * 2)) % 2 == 0) {
-        uint16_t bc = low ? col::BAD : (battery < 40 ? col::WARN : col::GOOD);
-        c.rect(x0 + 105, 2, 11, 5, col::TEXT);
-        c.vline(x0 + 116, 3, 3, col::TEXT);
-        c.fillRect(x0 + 106, 3, (battery * 9 + 50) / 100, 3, bc);
+
+    const float vals[3] = {core.life.hunger, core.life.happy, core.life.energy};
+    for (int i = 0; i < 3; i++) {
+      int mx = x0 + 2 + i * 40, my = 9;
+      switch (i) {
+        case 0: c.art(APPLE, 5, mx, my, "GRW", APPLE_C); break;
+        case 1: c.art(HEART, 4, mx, my + 1, "X", HEART_C); break;
+        default: c.art(BOLT, 5, mx, my, "X", BOLT_C); break;
       }
-      if (charging == 1) c.text(x0 + 99, 2, "+", K_YEL);
+      float v = clampf(vals[i], 0, 100);
+      uint16_t vc = v < tune::ATTENTION_LEVEL ? col::BAD : (v < 50 ? col::WARN : col::GOOD);
+      c.fillRect(mx + 7, my + 1, 30, 3, col::PANEL_DARK);
+      c.fillRect(mx + 7, my + 1, (int)(v * 30 / 100 + 0.5f), 3, vc);
     }
   }
   c.uiView();

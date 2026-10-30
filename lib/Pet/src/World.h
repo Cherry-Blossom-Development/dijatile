@@ -73,6 +73,7 @@ struct Prop {
   bool resting = false;
   float age = 0;
   float poopTimer = 0;          // time spent in the room (poop)
+  PropKind food = PropKind::None;  // bowl: Meal or Snack waiting in it
 };
 
 struct WorldEvents {
@@ -85,7 +86,8 @@ struct WorldEvents {
 
 struct Arena {
   bool round = false;
-  int size = 120;  // canvas size, logical px
+  int size = 120;    // canvas size, logical px
+  int petScale = 1;  // the pet and the props are drawn this many times bigger (round tile: 2)
 };
 
 class World {
@@ -103,6 +105,7 @@ class World {
   float hi() const { return hi_; }
   float rimRadius() const { return rimR_; }  // bowl: inside of the rim
 
+  // `half` is half the sprite box; the body's half is that times petScale.
   void reset(float half);
   // Real gravity (g, screen plane) and the floor; flat tiles get a gentle
   // pull toward the floor so things settle. A pet that can grip holds on
@@ -125,6 +128,7 @@ class World {
   const Body &body() const { return body_; }
   Prop *props() { return props_; }
   const Prop *props() const { return props_; }
+  // `half` is the prop art's half-size; the world scales it by petScale.
   Prop *addProp(PropKind kind, float x, float y, float half);
   Prop *findProp(PropKind kind);
   int countProps(PropKind kind) const;
@@ -134,6 +138,9 @@ class World {
   Vec2 onFloor(Floor f, float along, float height) const;
   // Position along the surface ("right" coordinate) of a point.
   float alongOf(Floor f, Vec2 p) const;
+  // Where the body stands along its surface. On the bowl this comes from its
+  // rim angle (its feet), not its sprite centre, which sits off the curve.
+  float bodyAlong() const;
   // Bowl: the quarter nearest to a rim angle.
   static Floor quarterOf(float angDeg);
 

@@ -324,6 +324,28 @@ void test_bowl_props_stay_in_and_settle() {
   TEST_ASSERT_TRUE(ball->x > x0);
 }
 
+void test_bowl_double_size_pet() {
+  World w;
+  Arena a;
+  a.round = true;
+  a.size = 206;
+  a.petScale = 2;
+  w.setArena(a);
+  w.reset(24);
+  const Body &b = w.body();
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 48, b.half);  // twice the sprite's half
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, w.mid() + w.rimRadius() - 48, b.y);  // feet on the rim
+  w.setHalf(16);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 32, b.half);
+  // re-applying the arena keeps the sprite size
+  w.setArena(a);
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 32, w.body().half);
+  bool fell;
+  turnGravity(w, 0, 4.0f, true, false, fell);
+  TEST_ASSERT_FALSE(fell);
+  TEST_ASSERT_EQUAL((int)Floor::East, (int)w.body().surface);
+}
+
 void test_physics_tilt_drift_and_props_slide() {
   World w;
   w.reset(16);
@@ -537,6 +559,83 @@ void test_power_cycle_restores_and_backup_fallback() {
   static PetApp d;
   d.begin(&host);
   TEST_ASSERT_EQUAL((int)Stage::Egg, (int)d.core().life.stage);
+}
+
+// Run the app for `ms` with the tile held upright (gravity down the screen).
+static void runApp(PetApp &app, FakeHost &host, int ms) {
+  for (int t = 0; t < ms; t += 15) {
+    for (int k = 0; k < 3; k++) {
+      host.clock += 5;
+      app.pushImu({host.clock, 0, 1, 0, 0, 0, 0});
+    }
+    app.tick();
+  }
+}
+
+static void pressKey(PetApp &app, FakeHost &host, Key k) {
+  InputEvent e{};
+  e.kind = InputKind::Key;
+  e.key = k;
+  app.onInput(e);
+  runApp(app, host, 100);
+}
+
+static const Prop *findBowl(const PetApp &app) {
+  for (int i = 0; i < World::MAX_PROPS; i++) {
+    const Prop &p = app.core().world.props()[i];
+    if (p.kind == PropKind::Bowl) return &p;
+  }
+  return nullptr;
+}
+
+void test_food_goes_in_the_bowl_and_the_pet_walks_over() {
+  static FakeHost host;
+  static PetApp app;
+  host.seed = 99;
+  app.begin(&host);
+  app.onResume();
+  app.command("pet stage adult");
+  app.command("pet set hunger 40");
+  runApp(app, host, 3000);
+  // Menu -> Feed -> Meal
+  pressKey(app, host, Key::Select);
+  pressKey(app, host, Key::Select);
+  pressKey(app, host, Key::Select);
+  const Prop *bowl = findBowl(app);
+  TEST_ASSERT_NOT_NULL(bowl);
+  TEST_ASSERT_EQUAL((int)PropKind::Meal, (int)bowl->food);
+  float closest = 1e9f;
+  bool ate = false;
+  for (int i = 0; i < 100 && !ate; i++) {
+    runApp(app, host, 150);
+    const Body &b = app.core().world.body();
+    float d = fabsf(app.core().world.alongOf(b.surface, b.pos()) -
+                    app.core().world.alongOf(b.surface, {bowl->x, bowl->y}));
+    if (d < closest) closest = d;
+    ate = bowl->food == PropKind::None;
+  }
+  TEST_ASSERT_TRUE(ate);
+  TEST_ASSERT_TRUE(app.core().life.hunger > 70);  // 40 + a 40 meal, minus a little decay
+  // it ate beside the bowl, not across the room
+  TEST_ASSERT_TRUE(closest < app.core().world.body().half + bowl->half + 4);
+}
+
+void test_a_hungry_pet_says_so() {
+  static FakeHost host;
+  static PetApp app;
+  host.seed = 5;
+  app.begin(&host);
+  app.onResume();
+  app.command("pet stage adult");
+  app.command("pet set hunger 10");
+  bool said = false;
+  for (int i = 0; i < 300 && !said; i++) {  // up to 45 s
+    runApp(app, host, 150);
+    const char *s = app.core().speech;
+    said = app.core().speechTimer > 0 &&
+           (strstr(s, "HUNGRY") || strstr(s, "FOOD") || strstr(s, "TUMMY"));
+  }
+  TEST_ASSERT_TRUE(said);
 }
 
 // =============================================================== genome
@@ -845,12 +944,15 @@ int main(int, char **) {
   RUN_TEST(test_bowl_sleeper_slides_to_the_bottom);
   RUN_TEST(test_bowl_flip_drops_the_pet_across);
   RUN_TEST(test_bowl_props_stay_in_and_settle);
+  RUN_TEST(test_bowl_double_size_pet);
   RUN_TEST(test_stats_decay_and_catchup_cap);
   RUN_TEST(test_life_stages_and_demeanour);
   RUN_TEST(test_life_end_of_life_modes);
   RUN_TEST(test_poop_and_feeding);
   RUN_TEST(test_save_crc_and_version);
   RUN_TEST(test_power_cycle_restores_and_backup_fallback);
+  RUN_TEST(test_food_goes_in_the_bowl_and_the_pet_walks_over);
+  RUN_TEST(test_a_hungry_pet_says_so);
   RUN_TEST(test_genome_deterministic);
   RUN_TEST(test_genome_distribution_matches_weights);
   RUN_TEST(test_genome_inheritance);

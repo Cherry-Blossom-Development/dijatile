@@ -122,7 +122,12 @@ class Tilepet : public App, public pet::PetHost {
     if (strcmp(line, "pet loop") == 0) {
       Serial.printf("LOOP avg=%.1fms max=%lums over %lu frames\n", loopFrames_ ? loopSumMs_ / (float)loopFrames_ : 0.0f,
                     (unsigned long)loopMaxMs_, (unsigned long)loopFrames_);
+      if (drawFrames_)
+        Serial.printf("LOOP tick=%.1fms render=%.1fms blit=%.1fms (avg per drawn frame, %lu drawn)\n",
+                      tickUs_ / 1000.0f / loopFrames_, renderUs_ / 1000.0f / drawFrames_,
+                      blitUs_ / 1000.0f / drawFrames_, (unsigned long)drawFrames_);
       loopSumMs_ = loopMaxMs_ = loopFrames_ = 0;
+      tickUs_ = renderUs_ = blitUs_ = drawFrames_ = 0;
       return true;
     }
     return pet_.command(line);
@@ -192,14 +197,20 @@ class Tilepet : public App, public pet::PetHost {
                         board::buttons.isDown(Button::C));
     if (audio_) updateMusicEngine();
     pullTitle();
+    uint32_t t0 = micros();
     pet_.tick();
+    tickUs_ += micros() - t0;
     updateAmp(now);
   }
 
   bool redraw() override { return pet_.wantsFrame(); }
 
   void draw(Arduino_Canvas &g) override {
+    uint32_t t0 = micros();
     pet_.render(*canvas_);
+    uint32_t t1 = micros();
+    renderUs_ += t1 - t0;
+    drawFrames_++;
     uint16_t *fb = g.getFramebuffer();
     if (!fb) return;
     if (clearPanel_) {
@@ -210,12 +221,17 @@ class Tilepet : public App, public pet::PetHost {
     for (int y = 0; y < CANVAS; y++) {
       uint16_t *row = fb + (OFF_Y + y * SCALE) * Display::WIDTH + OFF_X;
       const uint16_t *s = src + y * CANVAS;
+      // SCALE is 2 and the rows start 4-byte aligned (even widths): write each
+      // doubled pixel as one 32-bit word.
+      static_assert(SCALE == 2 && (Display::WIDTH % 2) == 0 && (OFF_X % 2) == 0, "fast 2x copy");
+      uint32_t *row32 = reinterpret_cast<uint32_t *>(row);
       for (int x = 0; x < CANVAS; x++) {
-        uint16_t c = s[x];
-        for (int k = 0; k < SCALE; k++) row[x * SCALE + k] = c;
+        uint32_t c = s[x];
+        row32[x] = c | (c << 16);
       }
       for (int k = 1; k < SCALE; k++) memcpy(row + k * Display::WIDTH, row, CANVAS * SCALE * sizeof(uint16_t));
     }
+    blitUs_ += micros() - t1;
   }
 
   // ======================================================== PetHost
@@ -224,6 +240,7 @@ class Tilepet : public App, public pet::PetHost {
     pet::Arena a;
     a.round = ROUND;
     a.size = CANVAS;
+    a.petScale = ROUND ? 2 : 1;  // the bowl is big: draw the pet twice the size
     return a;
   }
 
@@ -596,6 +613,7 @@ class Tilepet : public App, public pet::PetHost {
   volatile bool imuRunning_ = false;
   TaskHandle_t micTask_ = nullptr;
   uint32_t lastUpdateMs_ = 0, loopSumMs_ = 0, loopMaxMs_ = 0, loopFrames_ = 0;
+  uint32_t tickUs_ = 0, renderUs_ = 0, blitUs_ = 0, drawFrames_ = 0;
   volatile bool micRunning_ = false;
 
   Audio *audio_ = nullptr;

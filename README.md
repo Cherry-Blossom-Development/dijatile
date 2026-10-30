@@ -27,9 +27,9 @@ Both boards use an ESP32-S3R8 (8 MB PSRAM) with 16 MB flash.
 
 From the command line: `pio run -e TheSquareOne -t upload -t monitor`.
 
-> **PlatformIO Core 6.2+ is required** (for the pioarduino platform). If a
-> different `pio` on your PATH is older, use VS Code's copy:
-> `~/.platformio/penv/bin/pio`.
+> **PlatformIO Core 6.2.0 or newer is required** (for the pioarduino platform).
+> Core `6.2.0.post1` counts as older and is rejected: check `pio --version`, and
+> use a `pio` that reports plain `6.2.0` (or later).
 
 If upload can't find the board, hold **BOOT**, tap **RESET**, release BOOT,
 then upload again.
@@ -266,6 +266,10 @@ newer standard.
   in the firmware may define that hook.
 - **IMU axis mapping hasn't been tested on hardware.** If the ball rolls the
   wrong way, change `imu_axes` in `BoardConfig.h`.
+- **Idle sleep:** after 5 minutes without a touch, button or movement the
+  screen goes off. Plugged into a computer, the tile stays awake so its USB
+  serial port stays connected; on battery it light-sleeps. A button, a touch
+  or picking it up brings it back.
 - **Power latch:** `board::begin()` drives the hold pin high, so on battery
   the board stays on after you let go of PWR. Holding B for 3 s releases it.
 - **WiFi:** ESP-NOW keeps the radio in station mode on channel 1. Joining a

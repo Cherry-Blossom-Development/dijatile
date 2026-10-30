@@ -86,8 +86,10 @@ class Canvas {
 
   // Indexed sprite: index 0 transparent. Drawn with its own rotation (around
   // the sprite box) and optional mirror, top-left of the rotated box at (x, y),
-  // in un-rotated view coordinates (ignores setRot).
-  void blit(const uint8_t *idx, int w, int h, const uint16_t *pal, int x, int y, uint8_t rot, bool flipX);
+  // in un-rotated view coordinates (ignores setRot). `scale` draws each
+  // sprite pixel as a scale x scale block.
+  void blit(const uint8_t *idx, int w, int h, const uint16_t *pal, int x, int y, uint8_t rot, bool flipX,
+            int scale = 1);
   // Small picture written as strings, one char per pixel; '.' or ' ' is
   // transparent, other chars are looked up in `map` ("Xc" pairs).
   void art(const char *const *rows, int nrows, int x, int y, const char *keys, const uint16_t *colors,

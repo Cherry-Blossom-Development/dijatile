@@ -25,6 +25,9 @@ void uiToScreen(uint8_t rot, float u, float v, float &x, float &y);
 
 class Scene {
  public:
+  // Height of the status bar (two rows: name and alerts, then meters).
+  static constexpr int STATUS_H = 16;
+
   // Background, props, pet and effects (world coordinates, no UI).
   void drawWorld(Canvas &c, PetCore &core, const Brain &brain, float dt);
   // Speech bubble, status bar and debug overlays, upright for uiRot.
@@ -32,7 +35,8 @@ class Scene {
                int charging, const char *clock);
   // Just the pet sprite at a position (gallery, status page, games).
   static void drawPetAt(Canvas &c, const SpriteSet &s, const Genome &g, Demeanour d, Anim a, int frame,
-                        const FaceState &face, const PaletteMods &mods, int cx, int cy, uint8_t rot, bool flip);
+                        const FaceState &face, const PaletteMods &mods, int cx, int cy, uint8_t rot, bool flip,
+                        int scale = 1);
   void floorChanged(Floor from) {
     prevFloor_ = from;
     fade_ = 1;

@@ -47,6 +47,9 @@ bool begin();
 int batteryPercent();
 // 1 charging, 0 not, -1 unknown (the 1.46B has no charge detect).
 int charging();
+// A computer is connected over USB (it is polling the chip's USB serial port).
+// Plain USB power from a charger doesn't count.
+bool usbHost();
 
 // microSD via SD_MMC, mounted at /sdcard (1-bit on the 1.46B, 4-bit on the
 // 1.54). Mounting twice is fine; unmount when the app that needed it ends.

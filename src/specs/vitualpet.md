@@ -38,7 +38,7 @@ These are settled. Use the existing Dijatile codebase for all of them.
 
 **On the round 1.46B:** 412×412 AMOLED, SPD2010 touch, two buttons only (BOOT and PWR), one MEMS mic on its own I²S port, a PCF85063 RTC (not used yet), battery ADC on GPIO 8, no charging signal.
 
-**IMU axes.** The mapping from IMU axes to screen axes is `imu_axes` in `BoardConfig.h` (swap x/y, then x, y and z signs). On the 1.54 the z axis reads −1 face up, so `Z_SIGN = −1` there (checked on hardware). The 1.46B's z sign is unchecked.
+**IMU axes.** The mapping from IMU axes to screen axes is `imu_axes` in `BoardConfig.h` (swap x/y, then x, y and z signs). On both boards the z axis reads −1 face up, so `Z_SIGN = −1` (checked on hardware on both tiles).
 
 ---
 
@@ -60,7 +60,7 @@ The game is a board-free library, `lib/Pet` (pure C++, `library.json` with `"fra
 class PetHost {                         // lib/Pet/src/PetHost.h
  public:
   // the screen: canvas size and whether the room is the round bowl (§8)
-  virtual Arena arena() { return Arena(); }       // default: square, 120
+  virtual Arena arena() { return Arena(); }       // round?, canvas size, pet scale; default: square, 120, 1×
   // time and randomness
   virtual uint32_t millis() = 0;
   virtual bool wallClock(int64_t &epochSec) = 0;   // false when real time is unknown
@@ -173,7 +173,7 @@ Touch coordinates go through the same rotation as the UI (§7.3), so "up" on the
 | Swipe over poop | — | **Clean** that poop (same as the Clean action). |
 | Long press on the pet (≥800 ms) | Pick up and drag the pet. Release = it drops under gravity. | — |
 | Double-tap (within 450 ms) | **Dance!**: starts Listen & dance (§9.5). | — |
-| Tap the top strip (UI-relative y < 12) | — | Opens the menu (on the music screen: the track list). |
+| Tap the top strip (UI-relative y < 16 with the status bar showing, else < 12) | — | Opens the menu (on the music screen: the track list). |
 
 - The host converts touch to logical canvas pixels (subtract the canvas offset, divide by the scale) and drops touches that start outside the canvas.
 - In menus, touch selects items directly (tap = select); tapping a list's title bar goes back. Buttons and touch must both fully drive the UI.
@@ -268,7 +268,23 @@ A small set of expression layers drawn on top of the body animation: `neutral, h
 
 ### 6.5 Idle behaviours
 
-When nothing is happening, pick weighted idle actions every few seconds: wander, look around, sit, scratch, play with a toy, chase a bug, hum (tiny SFX), wave at the user. Weights depend on mood, stage and personality. Needs (§10) interrupt idles: a hungry pet points at its bowl, a dirty one looks at the poop, a sick one shivers.
+When nothing is happening, pick weighted idle actions every few seconds: wander, look around, sit, scratch, play with a toy, chase a bug, hum (tiny SFX), wave at the user. Weights depend on mood, stage and personality. Needs (§10) interrupt idles: a hungry pet points at its bowl, a dirty one looks at the poop, a sick one shivers. Food waiting in the bowl comes before everything else: the pet goes and eats it (§11.2).
+
+**Ball:** the ball choice has weight `2.5 × playful` (0 for eggs and babies, when cranky, or when the ball isn't on the pet's surface); the pet runs to the ball and kicks it, for up to 8 s.
+
+### 6.6 Talking
+
+The pet says what's on its mind in a speech bubble, with a matching babble (`Brain::updateChatter`).
+
+- **When:** a timer runs while the pet is awake on the pet screen and nothing else is being said, and it isn't listening, dancing, eating, pooping, walking to its food or being held. The timer runs at `0.6 + 0.8 × bold`, so bold pets talk more and shy ones less.
+- **Needs, every `CHAT_NEED_MIN_S`–`CHAT_NEED_MAX_S` (12–20 s)**, the first that applies:
+  - sick: "I FEEL SICK...", "MEDICINE PLEASE", "OUCH..." (sad voice)
+  - Hunger < 25: "I'M HUNGRY!", "FOOD PLEASE!", "MY TUMMY..." (sad)
+  - Energy < 25: "I'M SLEEPY", "SO TIRED...", "NAP TIME?"
+  - Happy < 25: "I'M SAD...", "PLAY WITH ME?", "I'M LONELY" (sad)
+  - two or more poops, or Clean < 30: "IT'S STINKY!", "CLEAN UP?", "EWW..." (cranky)
+- **Otherwise, every `CHAT_IDLE_MIN_S`–`CHAT_IDLE_MAX_S` (25–45 s):** Hunger < 50: "SNACK TIME?", "I COULD EAT..."; Happy > 75: "I LOVE YOU!", "LA LA LA!", "THIS IS FUN!", "YAY!" (happy); else 30 % "I'M <NAME>!", or "HMM...", "WHAT'S UP?", "HELLO!", "BORED...".
+- Each line shows for `CHAT_SAY_S` (2.8 s). Other speech (reactions, refusals) still happens as before and holds the chatter off while it shows.
 
 ---
 
@@ -276,7 +292,7 @@ When nothing is happening, pick weighted idle actions every few seconds: wander,
 
 ### 7.1 Pixel grid
 
-- The whole game renders into a square **logical canvas at 2× scale** (each logical pixel = 2×2 screen pixels) that covers the whole panel: **120×120 on the 1.54, 206×206 on the round 1.46B** (412 / 2). One pixel size on both tiles keeps one consistent pixel grid for the pet, props, text and UI.
+- The whole game renders into a square **logical canvas at 2× scale** (each logical pixel = 2×2 screen pixels) that covers the whole panel: **120×120 on the 1.54, 206×206 on the round 1.46B** (412 / 2). One pixel size on both tiles keeps one consistent pixel grid for the pet, props, text and UI, with one exception: on the round tile the **pet and the props are drawn at 2×** (`Arena::petScale`), so each of their pixels is 4×4 screen pixels, because at 1× they looked small in the big bowl. The room, particles, effects and UI stay at 2×.
 - The pet is **48×48 logical** (96×96 on screen) as an adult and elder, smaller in earlier stages (egg 24, baby 32, child 40, teen 44). Feet touch the bottom row of the box. Higher resolution than a classic 32×32 tamagotchi, but still clearly pixel art.
 - Render path: the game draws into an RGB565 `pet::Canvas` (in PSRAM; its pixel buffer is sized for the largest canvas, 206×206 ≈ 85 KB). The host copies it into the app manager's full-screen canvas at 2× (each logical pixel written to a 2×2 block, rows duplicated with `memcpy`), and the app manager flushes the frame. The canvas size is `Display::WIDTH / 2`, and the host reports it with the arena (§3.1).
 - **Views.** Canvas drawing goes into a square view: `worldView()` is the whole canvas (the room, props, pet, particles); `uiView()` is the **centred 120×120 UI box** that menus, lists, status pages, dialogs and mini-games are laid out in, so all UI code is written once for 120×120. `centredView(n)` gives other centred sizes. On the square tile all views are the whole canvas. Coordinates are view-local; `blit()`, `setClip()` and explicit-rotation `art()` use un-rotated view coordinates.
@@ -362,8 +378,8 @@ The background room is drawn relative to the current floor: floor tiles on the f
 
 Geometry: centre `(mid, mid)` with `mid = 103`, rim inner radius `R = mid − WALL − 1 = 98` (`WALL` = 4). A point on the rim is given by its **rim angle** (degrees, screen axes: 90 = bottom, 180 = left, 270/−90 = top, 0 = right). Each quarter's middle is the angle its `floorDown` points at.
 
-- **Along coordinate on the bowl:** arc length from the quarter's middle, `along = mid − R·rad(ang − floorAng)`, so "right" is clockwise-negative, the same direction as `floorRight` on the square box. The walkable range `lo()..hi()` is ±50° of arc around the quarter's middle.
-- **Standing:** the body keeps its rim angle `ang` and a quarter `surface`. It is drawn upright for its quarter, feet on the rim at `ang`: centre = rim point − `floorDown(surface)` × half. On a slope it stands slightly tilted against the curve (sprites still only turn in 90° steps, §7.2). The surface switches to the next quarter once `ang` is more than 50° from the current quarter's middle (5° of hysteresis past the 45° boundary); the world then reports `surfaceChanged` and the brain drops any walk target.
+- **Along coordinate on the bowl:** arc length from the quarter's middle, `along = mid − R·rad(ang − floorAng)`, so "right" is clockwise-negative, the same direction as `floorRight` on the square box. The walkable range `lo()..hi()` is ±65° of arc around the quarter's middle; the brain keeps a body half inside it, so the double-size pet's centre walks within about ±36°.
+- **Standing:** the body keeps its rim angle `ang` and a quarter `surface`. Its own along position (`World::bodyAlong()`, which the brain walks by) comes from `ang`, i.e. its feet, not from its sprite centre, which sits off the curve. It is drawn upright for its quarter, feet on the rim at `ang`: centre = rim point − `floorDown(surface)` × half. On a slope it stands slightly tilted against the curve (sprites still only turn in 90° steps, §7.2). The surface switches to the next quarter once `ang` is more than 50° from the current quarter's middle (5° of hysteresis past the 45° boundary); the world then reports `surfaceChanged` and the brain drops any walk target.
 - **On the rim** (`Grounded`/`Landing`): with `n` = outward normal and `r` = local right, `gn = G·n`, `gt = G·r`.
   - `gn < −0.2 g` (overhanging, with a clear gravity): it drops off the rim (`Airborne`).
   - A pet that can grip (§8.2) stands on slopes up to `TUMBLE_G`; walking and the drift (`gt × DRIFT_PX_S_PER_G`) apply as on the square box, so it can walk a little way up the bowl and is dragged back. Past `TUMBLE_G` it becomes `Clinging`.
@@ -375,6 +391,7 @@ Geometry: centre `(mid, mid)` with `mid = 103`, rim inner radius `R = mid − WA
 - **When flat**, gravity is the usual gentle pull toward the selector's floor (`FLAT_SETTLE_G`), so the pet rests and walks around that quarter's middle.
 - **Props** collide with the circle `R − half` and bounce (normal velocity × 0.25, zeroed below 8 px/s). Resting on the rim, static friction holds them up to `BOWL_PROP_FRICTION_G` (0.6 g, about 37°; higher than the square's 0.3 g so things don't all roll under the pet), otherwise they slide along the curve. `restOn` is the quarter of the contact point.
 - **Hold and drop:** a held pet is clamped to the disc.
+- **Pet scale:** `Arena::petScale` (2 on the round tile) multiplies the body's half-size in the world (`reset()` and `setHalf()` take the sprite's half and scale it), so collisions, feet on the rim, hit tests, walking bounds and effect positions all follow the drawn size. The scene passes the scale to `drawPetAt()`, which blits each sprite pixel as a 2×2 block, and scales hop and jitter offsets. Props scale the same way: `addProp()` multiplies the art's half-size by `petScale`, and the scene draws prop art (and the bug and poop stink lines) in `petScale` blocks. The gallery, status page and mini-games draw the pet at 1× in the UI box.
 - Starting positions use fractions of the walkable range (`alongAt`): bowl at 0.18, ball at 0.79, poops from 0.23 in steps of 12/112.
 
 ### 8.6 Round room drawing
@@ -679,7 +696,10 @@ Actual weight in game moves the build up or down one step from the set point (ov
 ### 11.1 Pet screen (home)
 
 - Room background, the pet, props.
-- Thin status bar at the screen "top" (§7.3): attention icon, sick icon, music note, battery, time (if known). Auto-hides after 5 s of no interaction; `Back` toggles it, and any other key or a tap shows it.
+- **Status bar** at the screen "top" (§7.3), two rows, 16 px high (`Scene::STATUS_H`), shown all the time (`Back` toggles it; an attention call turns it back on):
+  - Row 1: the pet's **name** on the left. On the right, from the edge inwards: battery (with "+" while charging), mic icon while listening, note while music plays, poop icon and count, sick "+", and a flashing "!" during an attention call. Time in the middle if known.
+  - Row 2: three meters, 30 px bars with an icon: food (apple, Hunger), happiness (heart, Happy) and energy (bolt, Energy). Green from 50, orange from 25, red below.
+  - The speech bubble stays below it.
 
 ### 11.2 Main menu
 
@@ -687,7 +707,7 @@ A 3×3 icon grid (pixel icons drawn at 2×) that slides in over the dimmed room 
 
 | Item | Action |
 |---|---|
-| **Feed** | Sub-menu: Meal / Snack. Pet eats with animation; refuses meals when full, refuses when asleep or sick (sick pets only accept medicine). |
+| **Feed** | Sub-menu: Meal / Snack. The food goes **in the bowl** (drawn heaped over its rim) and the pet walks over and eats it standing beside the bowl, facing it. It refuses meals when full, and refuses when asleep or sick (sick pets only accept medicine). If the walk is interrupted (a turn, being picked up), the food waits in the bowl and the pet goes back for it at its next idle choice. If the bowl is on another surface, or the pet hasn't arrived after `GO_EAT_MAX_S` (10 s), it eats where it is. With no bowl at all, the food appears in front of the pet as before. The food isn't saved: food left in the bowl at a reboot is gone. |
 | **Play** | Mini-games (§11.3). |
 | **Clean** | Wipe animation, removes all poop, +Clean. A bath variant if Clean < 30. |
 | **Lights** | Sleep now (§6.2) / wake. |
@@ -719,7 +739,7 @@ Leave a registry so more games can be added (ideas for later: Balance — keep a
 - Pet asleep: backlight 10 % for the first 30 s, then off, 5 fps. Face down or "lights off": off at once. A key or touch lights it at 10 % for 5 s.
 - Backlight off: 1 fps.
 - `wantsFrame()` implements these rates; the host returns it from `App::redraw()`, so skipped frames cost no draw or flush.
-- **System sleep (as built):** no deep sleep. The app manager light-sleeps after 5 idle minutes as it does for every app (wake on button, touch or motion). Tilepet calls `keepAwake()` while music plays or it is listening, gets `sleep()` (save, stop music and mic) before and `wake()` after, and treats the time away as sleep (§10.4).
+- **System sleep (as built):** no deep sleep. After 5 idle minutes the app manager light-sleeps as it does for every app (wake on button, touch or motion), or, while a computer is connected over USB, only blanks the screen and rests awake (`app-framework.md` §1). Tilepet calls `keepAwake()` while music plays or it is listening, gets `sleep()` (save, stop music and mic) before and `wake()` after, and treats the time away as sleep (§10.4).
 - Later: a deep sleep with QMI8658 wake-on-motion and a timer for morning or attention calls.
 - Battery (polled every 10 s): < 15 % the battery icon pulses; < 5 % and not charging: save once and show a "charge me" screen at 30 % backlight, which closes when charging starts or the level recovers.
 - While charging (1.54 only, the 1.46B can't tell): a "+" next to the battery icon. Later: a charging animation (the pet plugs itself in).
@@ -733,7 +753,7 @@ USB serial console at 115200, one command per line. `src/main.cpp` offers each l
 ```
 app Tilepet                   open the game from anywhere ("app" alone goes home)
 pet status                    stats, stage, age, mood, act, motion state, floor, body state
-pet loop                      (host) main-loop gap since the last call: average and worst, ms
+pet loop                      (host) main-loop gap since the last call: average and worst, ms; plus average tick, render and 2x-copy times
 pet set <stat> <value>        hunger happy energy clean health weight
 pet stage <name>              egg baby child teen adult elder
 pet sick | pet poop | pet hatch (also: grow to the next stage)
@@ -758,9 +778,10 @@ dance overlay on|off          border flash on each beat, band meters, BPM
 Host unit tests (`test/test_pet`, Unity, `pio test -e native -f test_pet`) cover:
 - the motion classifier on synthetic IMU traces: flat-still, face down, upright, pick-up, a tap that isn't a pick-up, shake vs. gentle handling, free fall, spin;
 - floor selection hysteresis and the fast-turn flag; clinging, climbing and falling; tilt drift and sliding props;
-- the round bowl: along/rim-angle round trip, following a slow turn, a sleeper sliding round, a flip, props staying in and settling;
+- the round bowl: along/rim-angle round trip, following a slow turn, a sleeper sliding round, a flip, props staying in and settling, the double-size pet;
 - stat decay and the catch-up cap, stages and demeanour, both end-of-life modes, poop and feeding;
 - save CRC and versioning, and power-cycle restore with fallback to the SD copy;
+- the whole app: feeding puts the meal in the bowl and the pet walks over and eats beside it; a hungry pet says so on its own;
 - genome determinism, trait distribution vs. weights, inheritance; baking every stage for many genomes; palette and face;
 - the beat tracker on 90/120/150 BPM click tracks, a tempo change, noise and random clicks (not music), and the latency shift; dance moves following the beat;
 - the synth playing and stopping. A desktop simulation can render frames for visual checks.
@@ -829,7 +850,7 @@ Dance: `MIC_SAMPLE_RATE, MIC_GAIN_DB, MIC_LATENCY_MS, LISTEN_TIMEOUT_S, LISTEN_L
 
 Play-test after milestones 3–5 before building more UI: the gravity and sleep behaviours are the heart of the game.
 
-**Status (2026-10-30):** milestones 1–10 are built, with placeholder art. On the 1.54 it runs on hardware: buttons, touch and the z axis are checked. The round bowl for the 1.46B (§8.5) is built and simulated, not yet run on the tile. Not built yet: the art pass (11), real time (RTC/NTP, §10.4), deep sleep (§12), SD `.wav` effect overrides (§9.2), a charging animation (§12). Still to check on hardware: the 1.46B's axes and touch, the battery divider, dance and mic latency, mic thresholds in real rooms, amp pops, and I²C stability over long runs.
+**Status (2026-10-30):** milestones 1–10 are built, with placeholder art. On the 1.54 it runs on hardware: buttons, touch and the z axis are checked. The round bowl for the 1.46B (§8.5) runs on the tile, with its z axis checked. On the 1.46B a frame takes about 75 ms: about 24 ms is the game (tick, render, 2× copy) and the rest is the app manager pushing the full 412×412 frame to the panel. Not built yet: the art pass (11), real time (RTC/NTP, §10.4), deep sleep (§12), SD `.wav` effect overrides (§9.2), a charging animation (§12). Still to check on hardware: the 1.46B's x/y axes and touch, the battery divider, dance and mic latency, mic thresholds in real rooms, amp pops, and I²C stability over long runs.
 
 ---
 

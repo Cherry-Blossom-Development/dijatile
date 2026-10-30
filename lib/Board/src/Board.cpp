@@ -65,6 +65,14 @@ int batteryPercent() {
   return (int)constrain(pct, 0.0f, 100.0f);
 }
 
+bool usbHost() {
+#if ARDUINO_USB_MODE && ARDUINO_USB_CDC_ON_BOOT
+  return HWCDC::isPlugged();
+#else
+  return false;
+#endif
+}
+
 int charging() {
 #if defined(BOARD_WS_154)
   return digitalRead(pins::CHARGING) == LOW ? 1 : 0;

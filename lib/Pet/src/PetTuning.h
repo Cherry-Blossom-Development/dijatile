@@ -138,7 +138,6 @@ constexpr uint32_t FPS_ACTIVE = 30, FPS_IDLE = 15, FPS_ASLEEP = 5;
 constexpr float DIM_AFTER_S = 60.0f;
 constexpr uint8_t BRIGHT_DIM_PCT = 40, BRIGHT_SLEEP_PCT = 10;
 constexpr float SLEEP_SCREEN_OFF_S = 30.0f;
-constexpr float STATUS_BAR_HIDE_S = 5.0f;
 constexpr float UI_ROTATE_HOLD_S = 0.3f;
 constexpr uint32_t SAVE_DEBOUNCE_MS = 60000;
 constexpr int BATTERY_LOW_PCT = 15, BATTERY_EMPTY_PCT = 5;
@@ -174,6 +173,15 @@ constexpr int MARACA_MIN_BEATS = 4;
 constexpr uint32_t TAP_ALONG_WINDOW_MS = 100;
 constexpr int TAP_ALONG_SPECIAL = 8;
 constexpr float QUIET_ENERGY = 0.08f;  // below this between songs the pet rests
+
+// ---------------------------------------------------------------- talking
+// The pet says what it needs (hungry, sad, sleepy, sick, a dirty room) every
+// CHAT_NEED_* seconds, and chats now and then otherwise. Bold pets talk more
+// often (the timer runs at 0.6 + 0.8 x bold), shy ones less.
+constexpr float CHAT_NEED_MIN_S = 12.0f, CHAT_NEED_MAX_S = 20.0f;
+constexpr float CHAT_IDLE_MIN_S = 25.0f, CHAT_IDLE_MAX_S = 45.0f;
+constexpr float CHAT_SAY_S = 2.8f;
+constexpr float GO_EAT_MAX_S = 10.0f;  // give up walking to the bowl and eat where it is
 
 // ---------------------------------------------------------------- touch
 constexpr uint32_t PICKUP_PRESS_MS = 800;

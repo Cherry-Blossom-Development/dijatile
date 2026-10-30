@@ -167,11 +167,9 @@ constexpr float Y_SIGN = 1.0f;
 #endif
 // Sign that makes accel z read about +1 with the screen facing up. Tilepet's
 // IMU overlay ("imu overlay on") shows it.
-#if defined(BOARD_WS_154)
-constexpr float Z_SIGN = -1.0f;  // checked on hardware 2026-10-29: z reads -1 face up
-#else
-constexpr float Z_SIGN = 1.0f;  // unchecked on the 1.46B
-#endif
+// Both boards read about -1 face up (checked on hardware: 1.54 on 2026-10-29,
+// 1.46B on 2026-10-30).
+constexpr float Z_SIGN = -1.0f;
 }  // namespace imu_axes
 
 // How raw touch coordinates map to screen pixels. Waveshare's own demos use

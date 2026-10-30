@@ -96,11 +96,12 @@ float floorAng(Floor f) {
 Vec2 dirOf(float angDeg) { return {cosf(angDeg * kDegToRad), sinf(angDeg * kDegToRad)}; }
 // "Right" along the rim at an angle: clockwise-negative, matching floorRight.
 Vec2 rimRight(float angDeg) { return {sinf(angDeg * kDegToRad), -cosf(angDeg * kDegToRad)}; }
-constexpr float WALK_RANGE_DEG = 50.0f;     // along range either side of a quarter
+constexpr float WALK_RANGE_DEG = 65.0f;     // along range either side of a quarter (the brain keeps a body half in)
 constexpr float SURFACE_SWITCH_DEG = 50.0f;  // sprite turns a quarter past this
 }  // namespace
 
 void World::setArena(const Arena &a) {
+  const float spriteHalf = body_.half / maxf(1, (float)arena_.petScale);
   arena_ = a;
   float m = mid();
   if (a.round) {
@@ -113,7 +114,7 @@ void World::setArena(const Arena &a) {
     lo_ = WALL;
     hi_ = a.size - WALL;
   }
-  reset(body_.half);
+  reset(spriteHalf);
 }
 
 Floor World::quarterOf(float angDeg) {
@@ -152,12 +153,17 @@ float World::alongOf(Floor f, Vec2 p) const {
 
 void World::reset(float half) {
   body_ = Body();
-  body_.half = half;
+  body_.half = half * arena_.petScale;
   body_.ang = 90;
-  Vec2 p = onFloor(Floor::South, mid(), half);
+  Vec2 p = onFloor(Floor::South, mid(), body_.half);
   body_.x = p.x;
   body_.y = p.y;
   for (Prop &p : props_) p = Prop();
+}
+
+float World::bodyAlong() const {
+  if (arena_.round) return mid() - wrapDeg(body_.ang - floorAng(body_.surface)) * kDegToRad * rimR_;
+  return alongOf(body_.surface, body_.pos());
 }
 
 void World::standOn(Floor f, float along) {
@@ -170,6 +176,7 @@ void World::standOn(Floor f, float along) {
 }
 
 void World::setHalf(float half) {
+  half *= arena_.petScale;
   body_.half = half;
   clampToBox(body_.x, body_.y, half);
   if (body_.state == BodyState::Grounded || body_.state == BodyState::Landing ||
@@ -712,6 +719,7 @@ Prop *World::addProp(PropKind kind, float x, float y, float half) {
     if (p.kind == PropKind::None) {
       p = Prop();
       p.kind = kind;
+      half *= arena_.petScale;
       p.half = half;
       p.x = x;
       p.y = y;

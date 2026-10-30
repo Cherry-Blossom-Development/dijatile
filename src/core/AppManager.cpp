@@ -11,7 +11,9 @@ namespace {
 constexpr uint32_t MIN_FRAME_US = 16000;  // cap at ~60 fps
 constexpr uint32_t POWER_OFF_HOLD_MS = 3000;
 // No touch, button or (for apps that read the IMU) movement for this long
-// blanks the screen and light-sleeps until the user comes back.
+// blanks the screen and light-sleeps until the user comes back. While a
+// computer is connected over USB it only blanks the screen and stays awake
+// ("resting"), so the USB port stays up for the console and uploads.
 // A touch that starts this close to the right edge drags the volume slider.
 constexpr int16_t VOLUME_EDGE = Display::WIDTH - 80 * ui::SCALE;
 constexpr int16_t VOLUME_BAR_H = 120 * ui::SCALE;
@@ -28,6 +30,9 @@ App *pending = nullptr;
 bool switchPending = false;
 uint32_t lastFrameUs = 0;
 uint32_t lastActivityMs = 0;
+bool resting = false;  // idle on USB: screen off, awake
+uint32_t restMotion0 = 0, restImuMs = 0;
+constexpr uint32_t REST_IMU_MS = 50;  // how often to read the IMU for movement while resting
 int volumeLevel = DEFAULT_VOLUME;
 uint32_t overlayUntilMs = 0;
 bool volumeTouch = false;  // the current touch belongs to the volume slider
@@ -183,6 +188,8 @@ bool idleTooLong() {
   return millis() - last >= IDLE_SLEEP_MS;
 }
 
+void swallowWakingInput();
+
 void sleepNow() {
   Serial.println("[sleep]");
   active->sleep();
@@ -200,8 +207,15 @@ void sleepNow() {
   net::resume();
   startAudio();
 
-  // The touch or press that woke us isn't meant for the app: wait it out and
-  // throw its events away.
+  swallowWakingInput();
+  lastActivityMs = millis();
+  lastFrameUs = micros();
+  active->wake();
+}
+
+// Throw away the touch or press that ended a sleep or rest: it isn't meant
+// for the app.
+void swallowWakingInput() {
   uint32_t t0 = millis();
   while (millis() - t0 < 200 || (anyInputDown() && millis() - t0 < 3000)) {
     board::buttons.poll();
@@ -214,9 +228,38 @@ void sleepNow() {
   TouchInput ti;
   while (board::touch.next(ti)) {
   }
+}
+
+void startRest() {
+  Serial.println("[rest] idle on USB: screen off, staying awake");
+  active->sleep();
+  stopAudio();
+  board::display.sleep();
+  resting = true;
+  restMotion0 = board::imu.lastMotionMs();
+}
+
+void endRest() {
+  resting = false;
+  board::display.wake();
+  startAudio();
+  swallowWakingInput();
   lastActivityMs = millis();
   lastFrameUs = micros();
   active->wake();
+  Serial.println("[rest] awake");
+}
+
+// One loop pass while resting. Returns true when it's time to wake.
+bool restPoll() {
+  board::buttons.poll();
+  board::touch.poll();
+  if (millis() - restImuMs >= REST_IMU_MS) {
+    restImuMs = millis();
+    Vec3 a;
+    board::imu.readAccel(a);  // updates lastMotionMs() on real movement
+  }
+  return anyInputDown() || board::imu.lastMotionMs() != restMotion0;
 }
 
 }  // namespace
@@ -275,10 +318,24 @@ void loop() {
   float dt = elapsed / 1e6f;
   if (dt > 0.05f) dt = 0.05f;  // don't let a stall fling things across the screen
 
+  if (resting) {
+    if (restPoll()) {
+      endRest();
+    } else if (!board::usbHost()) {
+      // Unplugged while resting: go to sleep properly.
+      endRest();
+      sleepNow();
+    }
+    return;
+  }
   handleButtons();
   handleTouch();
   if (idleTooLong()) {
-    sleepNow();
+    if (board::usbHost()) {
+      startRest();
+    } else {
+      sleepNow();
+    }
     return;
   }
   net::poll(onNet, nullptr);

@@ -431,7 +431,6 @@ void PetApp::tick() {
   if (screen_ == Screen::Gallery) galleryT_ += dt;
 
   // Status bar hides itself unless something needs attention.
-  if (statusBar_ && now - statusShownMs_ > STATUS_BAR_HIDE_S * 1000 && core_.life.callH < 0) statusBar_ = false;
   if (core_.life.callH >= 0) statusBar_ = true;
 
   // Saves: on important changes, else debounced; stats drift, so mark dirty now and then.
@@ -530,7 +529,7 @@ void PetApp::petScreenInput(const InputEvent &e, bool player) {
       }
       break;
     case InputKind::TouchDown:
-      touchForPet_ = v >= 12;
+      touchForPet_ = v >= (statusBar_ ? Scene::STATUS_H : 12);
       if (touchForPet_) brain_.touchDown(e.x, e.y);
       break;
     case InputKind::TouchMove:
@@ -541,7 +540,7 @@ void PetApp::petScreenInput(const InputEvent &e, bool player) {
       touchForPet_ = false;
       break;
     case InputKind::Tap:
-      if (v < 12) {
+      if (v < (statusBar_ ? Scene::STATUS_H : 12)) {
         core_.sfx.play(Sfx::Beep);
         if (player) openList(ListId::Tracks);
         else openScreen(Screen::Menu);

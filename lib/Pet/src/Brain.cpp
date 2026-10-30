@@ -1,5 +1,7 @@
 #include "Brain.h"
 
+#include <initializer_list>
+
 #include <math.h>
 #include <stdio.h>
 
@@ -13,13 +15,14 @@ const char *actName(Act a) {
   static const char *n[] = {"idle", "wander", "lookaround", "sit", "scratch", "playball", "kick", "chasebug",
                             "hum", "wave", "sillyfall", "pointbowl", "lookpoop", "shiver", "eating", "pooping",
                             "sleeping", "yawning", "celebrate", "refusing", "flinch", "tickled", "annoyed",
-                            "backaway", "approach", "nauseous", "scared", "medicine", "listening", "dancing"};
+                            "backaway", "approach", "nauseous", "scared", "medicine", "listening", "dancing",
+                            "goeat"};
   return (int)a < (int)Act::Count ? n[(int)a] : "?";
 }
 
 static bool isWalkAct(Act a) {
   return a == Act::Wander || a == Act::PlayBall || a == Act::ChaseBug || a == Act::PointBowl ||
-         a == Act::LookPoop || a == Act::BackAway || a == Act::Approach;
+         a == Act::LookPoop || a == Act::BackAway || a == Act::Approach || a == Act::GoEat;
 }
 
 void Brain::reset(PetCore &c) {
@@ -40,10 +43,7 @@ Vec2 Brain::headPos() const {
   return b.pos() + up() * (b.half * 0.7f);
 }
 
-float Brain::along() const {
-  const Body &b = c_->world.body();
-  return c_->world.alongOf(b.surface, b.pos());
-}
+float Brain::along() const { return c_->world.bodyAlong(); }
 
 float Brain::speed(float base) const {
   float s = base * c_->genome.speedMul();
@@ -612,14 +612,56 @@ void Brain::feed(bool snack) {
     return;
   }
   stopListen();
+  pendingSnack_ = snack;
+  pendingMeal_ = !snack;
+  c_->world.removeProps(PropKind::Meal);
+  c_->world.removeProps(PropKind::Snack);
+  Prop *bowl = c_->world.findProp(PropKind::Bowl);
+  if (bowl) {
+    // The food goes in the bowl, and the pet walks over to eat it.
+    bowl->food = snack ? PropKind::Snack : PropKind::Meal;
+    c_->sfx.play(Sfx::Select);
+    goEat();
+    return;
+  }
+  // No bowl: the food appears in front of the pet.
   const Body &b = c_->world.body();
   float front = along() + b.facing * floorRightSign(b.surface) * (b.half * 0.8f);
   Vec2 p = c_->world.onFloor(b.surface, front, 3);
-  c_->world.removeProps(PropKind::Meal);
-  c_->world.removeProps(PropKind::Snack);
   c_->world.addProp(snack ? PropKind::Snack : PropKind::Meal, p.x, p.y, 3);
-  pendingSnack_ = snack;
-  pendingMeal_ = !snack;
+  startEating();
+}
+
+void Brain::goEat() {
+  Body &b = c_->world.body();
+  Prop *bowl = c_->world.findProp(PropKind::Bowl);
+  if (!bowl || bowl->food == PropKind::None) {
+    if (!c_->world.findProp(PropKind::Meal) && !c_->world.findProp(PropKind::Snack)) {
+      pendingMeal_ = pendingSnack_ = false;  // nothing left to eat
+      return;
+    }
+    startEating();
+    return;
+  }
+  if (bowl->restOn != b.surface) {
+    startEating();  // the bowl is on another side of the room: eat here
+    return;
+  }
+  // Stand beside the bowl, on the side the pet is already on.
+  float ba = c_->world.alongOf(b.surface, {bowl->x, bowl->y});
+  float side = along() < ba ? -1.0f : 1.0f;
+  setAct(Act::GoEat);
+  walkTo(ba + side * (b.half * 0.7f + bowl->half), speed(WALK_PX_S));
+}
+
+void Brain::startEating() {
+  Body &b = c_->world.body();
+  if (Prop *bowl = c_->world.findProp(PropKind::Bowl)) {
+    if (bowl->food != PropKind::None && bowl->restOn == b.surface) {
+      float ba = c_->world.alongOf(b.surface, {bowl->x, bowl->y});
+      b.facing = (int8_t)((ba - along()) * floorRightSign(b.surface) >= 0 ? 1 : -1);
+    }
+  }
   setAct(Act::Eating, 2.4f);
   c_->sfx.play(Sfx::Eat);
 }
@@ -631,7 +673,8 @@ void Brain::clean() {
   c_->lifeSim.cleaned(c_->life);
   c_->sfx.play(Sfx::Clean);
   for (int i = 0; i < (bath ? 14 : 8); i++) {
-    c_->spawn(bath ? PK_BUBBLE : PK_SPARKLE, c_->rng.range(10, 110), c_->rng.range(20, 110), 0,
+    const float m = c_->world.mid(), r = c_->world.rimRadius() * 0.8f;  // spread over the room, either shape
+    c_->spawn(bath ? PK_BUBBLE : PK_SPARKLE, m + c_->rng.range(-r, r), m + c_->rng.range(-r * 0.7f, r * 0.9f), 0,
               bath ? -12.0f : 0.0f, c_->rng.range(0.6f, 1.4f));
   }
   if (!asleep_ && c_->life.stage != Stage::Egg) react(Expr::Happy, 1.5f);
@@ -842,6 +885,12 @@ void Brain::chooseIdle() {
   const Body &b = c.world.body();
   idleT_ = c.rng.range(3, 6) / (0.7f + 0.6f * g.playful);
 
+  // Food waiting in the bowl (the walk there was interrupted): go and eat it.
+  if (pendingMeal_ || pendingSnack_) {
+    goEat();
+    return;
+  }
+
   // Needs come first.
   if (L.hunger < ATTENTION_LEVEL) {
     Prop *bowl = c.world.findProp(PropKind::Bowl);
@@ -1022,6 +1071,9 @@ void Brain::updateAct(float dt) {
     case Act::LookPoop:
       if (actT_ >= actDur_) setAct(Act::Idle);
       break;
+    case Act::GoEat:
+      if ((!walking_ && grounded) || actT_ > GO_EAT_MAX_S) startEating();
+      break;
     case Act::Eating:
       if (actT_ >= actDur_) {
         if (pendingSnack_) {
@@ -1038,6 +1090,7 @@ void Brain::updateAct(float dt) {
         pendingSnack_ = pendingMeal_ = false;
         c.world.removeProps(PropKind::Meal);
         c.world.removeProps(PropKind::Snack);
+        if (Prop *bowl = c.world.findProp(PropKind::Bowl)) bowl->food = PropKind::None;
         babble(Voice::Happy, 2);
         c.dirty = true;
         c.needBake = true;  // weight may have changed the build
@@ -1319,6 +1372,57 @@ void Brain::updateParticles(float dt) {
 
 // ============================================================ main tick
 
+void Brain::updateChatter(float dt) {
+  PetCore &c = *c_;
+  if (asleep_ || c.uiOpen || listen_ != ListenState::Off || dancing() || c.speechTimer > 0) return;
+  if (act_ == Act::Eating || act_ == Act::Pooping || act_ == Act::GoEat || held_) return;
+  chatT_ -= dt * (0.6f + 0.8f * c.genome.bold);
+  if (chatT_ > 0) return;
+
+  const LifeState &L = c.life;
+  auto pick = [&](std::initializer_list<const char *> lines) {
+    int i = (int)(c.rng.unit() * lines.size());
+    if (i >= (int)lines.size()) i = (int)lines.size() - 1;
+    return *(lines.begin() + i);
+  };
+  const char *line = nullptr;
+  char buf[28];
+  Voice v = Voice::Neutral;
+  bool need = true;
+  if (L.sick) {
+    line = pick({"I FEEL SICK...", "MEDICINE PLEASE", "OUCH..."});
+    v = Voice::Sad;
+  } else if (L.hunger < ATTENTION_LEVEL) {
+    line = pick({"I'M HUNGRY!", "FOOD PLEASE!", "MY TUMMY..."});
+    v = Voice::Sad;
+  } else if (L.energy < ATTENTION_LEVEL) {
+    line = pick({"I'M SLEEPY", "SO TIRED...", "NAP TIME?"});
+  } else if (L.happy < ATTENTION_LEVEL) {
+    line = pick({"I'M SAD...", "PLAY WITH ME?", "I'M LONELY"});
+    v = Voice::Sad;
+  } else if (c.world.countProps(PropKind::Poop) >= 2 || L.clean < 30) {
+    line = pick({"IT'S STINKY!", "CLEAN UP?", "EWW..."});
+    v = Voice::Cranky;
+  } else {
+    need = false;
+    if (L.hunger < 50) {
+      line = pick({"SNACK TIME?", "I COULD EAT..."});
+    } else if (L.happy > 75) {
+      line = pick({"I LOVE YOU!", "LA LA LA!", "THIS IS FUN!", "YAY!"});
+      v = Voice::Happy;
+    } else if (c.rng.chance(0.3f)) {
+      snprintf(buf, sizeof(buf), "I'M %s!", c.name);
+      line = buf;
+      v = Voice::Happy;
+    } else {
+      line = pick({"HMM...", "WHAT'S UP?", "HELLO!", "BORED..."});
+    }
+  }
+  c.say(line, CHAT_SAY_S);
+  babble(v, 3);
+  chatT_ = need ? c.rng.range(CHAT_NEED_MIN_S, CHAT_NEED_MAX_S) : c.rng.range(CHAT_IDLE_MIN_S, CHAT_IDLE_MAX_S);
+}
+
 void Brain::tick(float dt) {
   PetCore &c = *c_;
   cranky_ = maxf(0, cranky_ - dt);
@@ -1342,6 +1446,7 @@ void Brain::tick(float dt) {
     updateDance(dt);
     if (!asleep_) updateAct(dt);
     else stopWalking();
+    updateChatter(dt);
   }
   updateFace(dt);
   updateParticles(dt);
