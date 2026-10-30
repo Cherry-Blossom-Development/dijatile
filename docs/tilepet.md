@@ -50,6 +50,7 @@ Moving the tile matters too:
 - **Shaking** makes it dizzy, with spiral eyes and stars. Shaking hard for long makes it nauseous, and doing that twice in 10 minutes makes it scared of you for a while.
 - **Spinning** it flat on the table does the same at half strength.
 - **Turning the tile slowly** makes the pet cling to the old floor and climb down to the new one. A quick turn or a flip makes it tumble. Props slide around too.
+- **On the round tile** the room is a round bowl that fills the screen. The floor is the curved rim, so the pet always heads for the lowest point: tilt the tile and it walks or slides round the curve. A quick turn or a flip still throws it across. Menus and games appear as a square panel in the middle.
 - **While music plays**, shaking in time with the beat counts as maracas. It excites the pet instead of confusing it.
 
 ## Menu
@@ -136,7 +137,7 @@ The microphone's latency is `MIC_LATENCY_MS` in `PetTuning.h`.
 | `PetHost.h` | Everything the game needs from the board (spec 3.1) |
 | `PetTuning.h` | Every threshold and rate (spec 15) |
 | `Motion` | IMU filtering and the motion classifier |
-| `World` | Floor selection, pet body states and props |
+| `World` | Floor selection, pet body states and props, for the square box and the round bowl |
 | `Life` | Stats, stages and end of life |
 | `Genome`, `PetGenes.h` | Trait tables, decode and inheritance |
 | `Art` | Animation list (the art contract), placeholder art, compositing and palettes |
@@ -198,8 +199,7 @@ The animations, palette slots and anchors are listed in `lib/Pet/src/Art.h`.
   - No deep sleep. The app manager's light sleep is used.
   - The SD `.wav` sound-effect overrides are not implemented.
 - **Needs checking on hardware:**
-  - **IMU axes.** Especially `imu_axes::Z_SIGN`; the host flips it by itself if the screen gets touched while the IMU reads face down.
-  - **Touch mapping** on the 1.54.
+  - **IMU axes on the 1.46B.** Especially `imu_axes::Z_SIGN`; the host flips it by itself if the screen gets touched while the IMU reads face down. The 1.54's axes and touch are checked.
   - **Battery divider** (`battery::DIVIDER`).
   - **Latency values** for dancing.
   - **Mic gain and thresholds** with real rooms.

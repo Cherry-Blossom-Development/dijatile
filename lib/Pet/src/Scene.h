@@ -17,7 +17,9 @@ enum class Icon : uint8_t {
 void drawIcon(Canvas &c, Icon icon, int x, int y, int scale = 1);
 void iconSize(Icon icon, int &w, int &h);
 
-// Screen <-> UI coordinates for a UI rotation (the inverse of Canvas::pset).
+// UI box coordinates: un-rotated (0..120 inside the box) <-> rotated for a UI
+// rotation. Touch input must first have the box offset taken off
+// (PetApp::toUi).
 void screenToUi(uint8_t rot, float x, float y, float &u, float &v);
 void uiToScreen(uint8_t rot, float u, float v, float &x, float &y);
 
@@ -38,11 +40,19 @@ class Scene {
 
  private:
   void drawRoom(Canvas &c, PetCore &core, Floor f, float level, bool beat);
+  void drawRoundRoom(Canvas &c, PetCore &core, Floor f, bool beat);
+  void buildBowl(const World &w);
   void drawProps(Canvas &c, PetCore &core);
   void drawPet(Canvas &c, PetCore &core, const Brain &brain);
   void drawParticles(Canvas &c, PetCore &core, Floor f);
   void drawImuOverlay(Canvas &c, PetCore &core, const Brain &brain);
   void drawBeatOverlay(Canvas &c, PetCore &core);
+
+  // Round room geometry, per row: half-widths of the rim's outside and inside,
+  // and one bit per pixel for the rim tile pattern.
+  int bowlSize_ = 0;
+  int16_t bowlOuter_[Canvas::MAX] = {0}, bowlInner_[Canvas::MAX] = {0};
+  uint8_t bowlTiles_[(Canvas::MAX * Canvas::MAX + 7) / 8] = {0};
 
   Floor prevFloor_ = Floor::South;
   float fade_ = 0;

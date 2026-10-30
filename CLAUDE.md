@@ -10,6 +10,12 @@ Firmware for the Dijatile tiles: two ESP32-S3 display tiles (Waveshare 1.46B rou
   together, so change message formats, structs, APIs and file layouts freely. Do
   not add compatibility shims, legacy fields or migration code. Bumping a
   protocol version is fine but not required.
+- **Specs are the source of truth, complete enough to rebuild from.** They live in
+  `src/specs/` (Tilepet: `vitualpet.md`). Every new feature, behaviour change or design
+  decision goes into its spec in the same change as the code, including choices made
+  during implementation, deviations from the original spec, and debug commands. A
+  feature with no spec yet gets one. A feature with no spec update is unfinished.
+  `docs/` is the user-facing summary and follows the spec.
 - **Document every communication protocol as it is built or changed**, in the
   same change as the code: ESP-NOW (system traffic, per-app messages, the Controls
   link) and the IR edge detection. The single place is `docs/protocols.md`

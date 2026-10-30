@@ -42,7 +42,7 @@ Vec2 Brain::headPos() const {
 
 float Brain::along() const {
   const Body &b = c_->world.body();
-  return World::alongOf(b.surface, b.pos());
+  return c_->world.alongOf(b.surface, b.pos());
 }
 
 float Brain::speed(float base) const {
@@ -55,7 +55,7 @@ float Brain::speed(float base) const {
 
 void Brain::walkTo(float a, float spd) {
   const Body &b = c_->world.body();
-  target_ = clampf(a, World::LO + b.half + 1, World::HI - b.half - 1);
+  target_ = clampf(a, c_->world.lo() + b.half + 1, c_->world.hi() - b.half - 1);
   walkSpeed_ = spd;
   walking_ = true;
 }
@@ -323,6 +323,11 @@ void Brain::floorChanged(Floor from, Floor to, bool fast) {
 }
 
 void Brain::worldEvents(const WorldEvents &ev) {
+  if (ev.surfaceChanged) {
+    // Round the bowl onto another quarter: along targets no longer apply.
+    if (isWalkAct(act_)) setAct(Act::Idle);
+    stopWalking();
+  }
   if (ev.hardLanding) {
     c_->sfx.play(Sfx::Oof);
     if (c_->life.stage != Stage::Egg) {
@@ -520,7 +525,7 @@ void Brain::tap(float x, float y) {
     if (!asleep_ && b.state == BodyState::Grounded && act_ == Act::Idle &&
         c_->rng.chance(0.2f + 0.5f * c_->genome.curious)) {
       setAct(Act::Approach);
-      walkTo(World::alongOf(b.surface, {x, y}), speed(WALK_PX_S));
+      walkTo(c_->world.alongOf(b.surface, {x, y}), speed(WALK_PX_S));
     }
     return;
   }
@@ -571,7 +576,7 @@ void Brain::tap(float x, float y) {
   }
   if (scared_ > 0 || c_->genome.bold < 0.35f) {
     const Body &b = c_->world.body();
-    float away = World::alongOf(b.surface, b.pos()) - World::alongOf(b.surface, {x, y});
+    float away = c_->world.alongOf(b.surface, b.pos()) - c_->world.alongOf(b.surface, {x, y});
     setAct(Act::BackAway);
     walkTo(along() + (away >= 0 ? 30 : -30), speed(RUN_PX_S));
     react(Expr::Scared, 1.2f);
@@ -609,7 +614,7 @@ void Brain::feed(bool snack) {
   stopListen();
   const Body &b = c_->world.body();
   float front = along() + b.facing * floorRightSign(b.surface) * (b.half * 0.8f);
-  Vec2 p = World::onFloor(b.surface, front, 3);
+  Vec2 p = c_->world.onFloor(b.surface, front, 3);
   c_->world.removeProps(PropKind::Meal);
   c_->world.removeProps(PropKind::Snack);
   c_->world.addProp(snack ? PropKind::Snack : PropKind::Meal, p.x, p.y, 3);
@@ -825,7 +830,7 @@ void Brain::updateDance(float) {
 void Brain::spawnPoop() {
   const Body &b = c_->world.body();
   float behind = along() - b.facing * floorRightSign(b.surface) * (b.half * 0.7f);
-  Vec2 p = World::onFloor(b.surface, behind, 3.5f);
+  Vec2 p = c_->world.onFloor(b.surface, behind, 3.5f);
   if (c_->world.addProp(PropKind::Poop, p.x, p.y, 3.5f)) c_->sfx.play(Sfx::Poop);
   c_->dirty = true;
 }
@@ -841,7 +846,7 @@ void Brain::chooseIdle() {
   if (L.hunger < ATTENTION_LEVEL) {
     Prop *bowl = c.world.findProp(PropKind::Bowl);
     setAct(Act::PointBowl, 3.0f);
-    if (bowl && bowl->restOn == b.surface) walkTo(World::alongOf(b.surface, {bowl->x, bowl->y}) - 10, speed(WALK_PX_S));
+    if (bowl && bowl->restOn == b.surface) walkTo(c_->world.alongOf(b.surface, {bowl->x, bowl->y}) - 10, speed(WALK_PX_S));
     react(Expr::Hungry, 3);
     return;
   }
@@ -888,12 +893,12 @@ void Brain::chooseIdle() {
     }
     r -= w[i];
   }
-  float lo = World::LO + b.half + 2, hi = World::HI - b.half - 2;
+  float lo = c_->world.lo() + b.half + 2, hi = c_->world.hi() - b.half - 2;
   switch (pick) {
     case WANDER: {
       float t;
       if (g.bold < 0.35f || scared_ > 0) t = c.rng.chance(0.5f) ? lo : hi;  // shy: near the walls
-      else t = 60 + c.rng.range(-35, 35);
+      else t = c.world.mid() + c.rng.range(-1, 1) * (c.world.hi() - c.world.lo()) * 0.31f;
       setAct(Act::Wander);
       walkTo(t, speed(WALK_PX_S));
       break;
@@ -903,7 +908,7 @@ void Brain::chooseIdle() {
     case SCRATCH: setAct(Act::Scratch, 1.5f); break;
     case BALL: setAct(Act::PlayBall); break;
     case BUG: {
-      Vec2 p = World::onFloor(b.surface, c.rng.range(lo, hi), 34);
+      Vec2 p = c_->world.onFloor(b.surface, c.rng.range(lo, hi), 34);
       if (c.world.addProp(PropKind::Bug, p.x, p.y, 2)) {
         bugT_ = 0;
         setAct(Act::ChaseBug);
@@ -930,9 +935,9 @@ void Brain::updateBug(float dt) {
   if (!bug) return;
   bugT_ += dt;
   const Body &b = c_->world.body();
-  float a = 60 + 38 * sinf(0.9f * bugT_ + 1.3f);
+  float a = c_->world.mid() + (c_->world.hi() - c_->world.lo()) * 0.34f * sinf(0.9f * bugT_ + 1.3f);
   float h = 30 + 10 * sinf(2.3f * bugT_);
-  Vec2 p = World::onFloor(b.surface, a, h);
+  Vec2 p = c_->world.onFloor(b.surface, a, h);
   bug->x = p.x;
   bug->y = p.y;
 }
@@ -983,7 +988,7 @@ void Brain::updateAct(float dt) {
         setAct(Act::Idle);
         break;
       }
-      float ba = World::alongOf(b.surface, {ball->x, ball->y});
+      float ba = c_->world.alongOf(b.surface, {ball->x, ball->y});
       if (fabsf(ba - along()) < b.half * 0.6f + ball->half + 2 && grounded) {
         float dir = ba > along() ? 1.0f : -1.0f;
         b.facing = (int8_t)(dir * floorRightSign(b.surface) >= 0 ? 1 : -1);
@@ -1010,7 +1015,7 @@ void Brain::updateAct(float dt) {
         }
         break;
       }
-      walkTo(World::alongOf(b.surface, {bug->x, bug->y}), speed(RUN_PX_S));
+      walkTo(c_->world.alongOf(b.surface, {bug->x, bug->y}), speed(RUN_PX_S));
       break;
     }
     case Act::PointBowl:

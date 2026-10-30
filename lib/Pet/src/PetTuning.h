@@ -98,6 +98,7 @@ constexpr float CRAWL_PX_S = 9.0f;
 constexpr float LANDING_S = 0.15f;
 constexpr float WALL_PX = 4.0f;  // border drawn round the room
 constexpr float PROP_FRICTION_G = 0.3f;
+constexpr float BOWL_PROP_FRICTION_G = 0.6f;  // round bowl: props stay put on its slopes up to ~37 degrees
 constexpr float POOP_HIT_V = 60.0f;
 
 // ---------------------------------------------------------------- life (game hours)

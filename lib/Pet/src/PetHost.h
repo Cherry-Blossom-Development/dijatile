@@ -6,6 +6,7 @@
 #include <stdint.h>
 
 #include "SaveData.h"
+#include "World.h"
 
 namespace pet {
 
@@ -22,6 +23,11 @@ struct MusicStatus {
 class PetHost {
  public:
   virtual ~PetHost() = default;
+
+  // ---- the screen: canvas size and whether the room is a round bowl
+  // (the canvas the host passes to render() has this size). Default: the
+  // square 120x120 box.
+  virtual Arena arena() { return Arena(); }
 
   // ---- time and randomness
   virtual uint32_t millis() = 0;

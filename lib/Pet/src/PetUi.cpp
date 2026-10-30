@@ -79,7 +79,7 @@ void PetApp::menuInput(const InputEvent &e) {
   }
   if (e.kind != InputKind::Tap) return;
   float u, v;
-  screenToUi(uiRot_, e.x, e.y, u, v);
+  toUi(uiRot_, e.x, e.y, u, v);
   int col = (int)floorf((u - MENU_X) / CELL_W), row = (int)floorf((v - MENU_Y) / CELL_H);
   if (u >= MENU_X && v >= MENU_Y && col < 3 && row < 3) {
     sel_ = row * 3 + col;
@@ -284,7 +284,7 @@ void PetApp::listInput(const InputEvent &e) {
     }
   } else if (e.kind == InputKind::Tap) {
     float u, v;
-    screenToUi(uiRot_, e.x, e.y, u, v);
+    toUi(uiRot_, e.x, e.y, u, v);
     if (v < ROW_Y - 1) {
       back();
       return;
@@ -296,8 +296,8 @@ void PetApp::listInput(const InputEvent &e) {
     }
   } else if (e.kind == InputKind::Swipe) {
     float su, sv, u, v;
-    screenToUi(uiRot_, e.startX, e.startY, su, sv);
-    screenToUi(uiRot_, e.x, e.y, u, v);
+    toUi(uiRot_, e.startX, e.startY, su, sv);
+    toUi(uiRot_, e.x, e.y, u, v);
     scroll_ += v < sv ? 3 : -3;
   }
   if (screen_ == Screen::List) {
@@ -320,7 +320,7 @@ void PetApp::statusInput(const InputEvent &e) {
     }
   } else if (e.kind == InputKind::Tap) {
     float u, v;
-    screenToUi(uiRot_, e.x, e.y, u, v);
+    toUi(uiRot_, e.x, e.y, u, v);
     if (v < 12) closeToPet();
     else page_ = (page_ + 1) % 4;
   }
@@ -345,7 +345,7 @@ void PetApp::gameInput(const InputEvent &e) {
     game_->onKey(core_, e.key);
   } else if (e.kind == InputKind::Tap) {
     float u, v;
-    screenToUi(gameRot_, e.x, e.y, u, v);
+    toUi(gameRot_, e.x, e.y, u, v);
     game_->onTap(core_, u, v);
   }
 }
@@ -401,7 +401,7 @@ void PetApp::confirmInput(const InputEvent &e) {
     no = e.key == Key::Back || e.key == Key::Next;
   } else if (e.kind == InputKind::Tap) {
     float u, v;
-    screenToUi(uiRot_, e.x, e.y, u, v);
+    toUi(uiRot_, e.x, e.y, u, v);
     if (v > 60) {
       yes = u < 60;
       no = !yes;
@@ -431,37 +431,54 @@ void PetApp::clockText(char *out, size_t n) {
 void PetApp::render(Canvas &c) {
   float dt = frameDt_;
   frameDt_ = 0;
-  c.noClip();
-  c.setRot(0);
+  const bool round = core_.world.round();
+  // Full-screen panels: on the round tile they sit centred on a dark disc.
+  auto panelBackdrop = [&]() {
+    if (round) c.clear(col::INK);
+    c.uiView();
+  };
   switch (screen_) {
     case Screen::Game:
     case Screen::Result:
+      panelBackdrop();
       if (game_) {
         c.setRot(gameRot_);
         game_->render(c, core_, gameRot_);
         if (screen_ == Screen::Result) drawResult(c);
       }
-      c.setRot(0);
+      c.worldView();
       return;
     case Screen::Gallery:
+      panelBackdrop();
       drawGallery(c);
+      c.worldView();
       return;
     case Screen::Charge:
+      panelBackdrop();
       drawCharge(c);
+      c.worldView();
       return;
     default:
       break;
   }
+  c.worldView();
   scene_.drawWorld(c, core_, brain_, dt);
   char clock[8];
   clockText(clock, sizeof(clock));
+  bool panel = screen_ == Screen::Menu || screen_ == Screen::List || screen_ == Screen::Status ||
+               screen_ == Screen::Confirm;
+  // The room outside the UI box dims under a panel.
+  if (panel && round) c.shade(0, 0, c.size(), c.size(), 0.5f);
+  c.uiView();
   switch (screen_) {
     case Screen::Pet:
       scene_.drawHud(c, core_, brain_, uiRot_, statusBar_, battery_, charging_, clock);
+      c.uiView();
       if (brain_.seq() == Seq::Farewell) drawFarewell(c);
       break;
     case Screen::Player:
       scene_.drawHud(c, core_, brain_, uiRot_, false, battery_, charging_, clock);
+      c.uiView();
       drawPlayerOverlay(c);
       break;
     case Screen::Menu: drawMenu(c); break;
@@ -470,7 +487,7 @@ void PetApp::render(Canvas &c) {
     case Screen::Confirm: drawConfirm(c); break;
     default: break;
   }
-  c.setRot(0);
+  c.worldView();
 }
 
 void PetApp::drawMenu(Canvas &c) {
@@ -696,7 +713,7 @@ void PetApp::drawResult(Canvas &c) {
 
 void PetApp::drawGallery(Canvas &c) {
   c.setRot(0);
-  c.clear(hex565(0xF2E6C8));
+  c.fillRect(0, 0, Canvas::UI, Canvas::UI, hex565(0xF2E6C8));
   if (!gallery_) return;
   // Cycle every animation, then turn all of them a quarter.
   int perAnim = 2;
@@ -739,7 +756,7 @@ void PetApp::drawConfirm(Canvas &c) {
 
 void PetApp::drawCharge(Canvas &c) {
   c.setRot(uiRot_);
-  c.clear(col::INK);
+  c.fillRect(0, 0, Canvas::UI, Canvas::UI, col::INK);
   c.rect(40, 40, 36, 18, col::BAD);
   c.fillRect(76, 45, 3, 8, col::BAD);
   c.fillRect(42, 42, 3, 14, col::BAD);

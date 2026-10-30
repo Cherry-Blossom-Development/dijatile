@@ -22,50 +22,105 @@ uint16_t scale565(uint16_t c, float k) {
   return (uint16_t)((r << 11) | (g << 5) | b);
 }
 
+Canvas::Canvas(int size) {
+  S_ = size < 1 ? 1 : (size > MAX ? MAX : size);
+  worldView();
+}
+
+void Canvas::setView(int x, int y, int size) {
+  vx_ = x;
+  vy_ = y;
+  vs_ = size;
+  rot_ = 0;
+  noClip();
+}
+
+inline void Canvas::map(int x, int y, int &cx, int &cy) const {
+  const int m = vs_ - 1;
+  switch (rot_) {
+    case 0: cx = x; cy = y; break;
+    case 1: cx = m - y; cy = x; break;
+    case 2: cx = m - x; cy = m - y; break;
+    default: cx = y; cy = m - x; break;
+  }
+  cx += vx_;
+  cy += vy_;
+}
+
+void Canvas::toLocal(float x, float y, float &u, float &v) const {
+  const float m = (float)(vs_ - 1);
+  x -= vx_;
+  y -= vy_;
+  switch (rot_) {
+    case 0: u = x; v = y; break;
+    case 1: u = y; v = m - x; break;
+    case 2: u = m - x; v = m - y; break;
+    default: u = m - y; v = x; break;
+  }
+}
+
+void Canvas::toCanvas(float u, float v, float &x, float &y) const {
+  const float m = (float)(vs_ - 1);
+  switch (rot_) {
+    case 0: x = u; y = v; break;
+    case 1: x = m - v; y = u; break;
+    case 2: x = m - u; y = m - v; break;
+    default: x = v; y = m - u; break;
+  }
+  x += vx_;
+  y += vy_;
+}
+
 void Canvas::setClip(int x, int y, int w, int h) {
+  x += vx_;
+  y += vy_;
   cx0_ = x < 0 ? 0 : x;
   cy0_ = y < 0 ? 0 : y;
-  cx1_ = x + w > W ? W : x + w;
-  cy1_ = y + h > H ? H : y + h;
+  cx1_ = x + w > S_ ? S_ : x + w;
+  cy1_ = y + h > S_ ? S_ : y + h;
 }
 
 void Canvas::clear(uint16_t c) {
-  for (int i = 0; i < W * H; i++) px_[i] = c;
+  for (int i = 0; i < S_ * S_; i++) px_[i] = c;
 }
 
 inline void Canvas::plot(int x, int y, uint16_t c) {
   if (x < cx0_ || y < cy0_ || x >= cx1_ || y >= cy1_) return;
-  px_[y * W + x] = c;
+  px_[y * S_ + x] = c;
 }
 
 void Canvas::pset(int x, int y, uint16_t c) {
-  switch (rot_) {
-    case 0: plot(x, y, c); break;
-    case 1: plot(W - 1 - y, x, c); break;
-    case 2: plot(W - 1 - x, H - 1 - y, c); break;
-    default: plot(y, H - 1 - x, c); break;
-  }
+  int cx, cy;
+  map(x, y, cx, cy);
+  plot(cx, cy, c);
 }
 
 uint16_t Canvas::get(int x, int y) const {
-  if (x < 0 || y < 0 || x >= W || y >= H) return 0;
-  return px_[y * W + x];
+  if (x < 0 || y < 0 || x >= S_ || y >= S_) return 0;
+  return px_[y * S_ + x];
+}
+
+// Rotated view rectangle -> canvas rectangle.
+static void rotRect(uint8_t rot, int vs, int x, int y, int w, int h, int &sx, int &sy, int &sw, int &sh) {
+  switch (rot) {
+    case 0: sx = x; sy = y; sw = w; sh = h; break;
+    case 1: sx = vs - y - h; sy = x; sw = h; sh = w; break;
+    case 2: sx = vs - x - w; sy = vs - y - h; sw = w; sh = h; break;
+    default: sx = y; sy = vs - x - w; sw = h; sh = w; break;
+  }
 }
 
 void Canvas::fillRect(int x, int y, int w, int h, uint16_t c) {
   if (w <= 0 || h <= 0) return;
   // Rotate the rectangle once instead of every pixel.
   int sx, sy, sw, sh;
-  switch (rot_) {
-    case 0: sx = x; sy = y; sw = w; sh = h; break;
-    case 1: sx = W - y - h; sy = x; sw = h; sh = w; break;
-    case 2: sx = W - x - w; sy = H - y - h; sw = w; sh = h; break;
-    default: sx = y; sy = H - x - w; sw = h; sh = w; break;
-  }
+  rotRect(rot_, vs_, x, y, w, h, sx, sy, sw, sh);
+  sx += vx_;
+  sy += vy_;
   int x0 = sx < cx0_ ? cx0_ : sx, y0 = sy < cy0_ ? cy0_ : sy;
   int x1 = sx + sw > cx1_ ? cx1_ : sx + sw, y1 = sy + sh > cy1_ ? cy1_ : sy + sh;
   for (int yy = y0; yy < y1; yy++) {
-    uint16_t *row = px_ + yy * W;
+    uint16_t *row = px_ + yy * S_;
     for (int xx = x0; xx < x1; xx++) row[xx] = c;
   }
 }
@@ -116,20 +171,14 @@ void Canvas::circle(int cx, int cy, int r, uint16_t c) {
 }
 
 void Canvas::shade(int x, int y, int w, int h, float k) {
-  uint8_t r = rot_;
-  rot_ = 0;
   int sx, sy, sw, sh;
-  switch (r) {
-    case 0: sx = x; sy = y; sw = w; sh = h; break;
-    case 1: sx = W - y - h; sy = x; sw = h; sh = w; break;
-    case 2: sx = W - x - w; sy = H - y - h; sw = w; sh = h; break;
-    default: sx = y; sy = H - x - w; sw = h; sh = w; break;
-  }
-  rot_ = r;
+  rotRect(rot_, vs_, x, y, w, h, sx, sy, sw, sh);
+  sx += vx_;
+  sy += vy_;
   for (int yy = sy; yy < sy + sh; yy++) {
     for (int xx = sx; xx < sx + sw; xx++) {
       if (xx < cx0_ || yy < cy0_ || xx >= cx1_ || yy >= cy1_) continue;
-      px_[yy * W + xx] = scale565(px_[yy * W + xx], k);
+      px_[yy * S_ + xx] = scale565(px_[yy * S_ + xx], k);
     }
   }
 }
@@ -236,7 +285,7 @@ void Canvas::blit(const uint8_t *idx, int w, int h, const uint16_t *pal, int x, 
         case 2: dx = w - 1 - ux; dy = h - 1 - sy; break;
         default: dx = sy; dy = w - 1 - ux; break;
       }
-      plot(x + dx, y + dy, pal[v]);
+      plot(vx_ + x + dx, vy_ + y + dy, pal[v]);
     }
   }
 }

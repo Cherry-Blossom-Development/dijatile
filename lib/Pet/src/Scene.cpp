@@ -12,6 +12,8 @@ namespace pet {
 
 namespace {
 
+constexpr int HUD_ROUND_INSET = 21;  // round tile: status bar this far below the top of the circle
+
 struct IconDef {
   const char *const *rows;
   uint8_t h;
@@ -121,7 +123,7 @@ void drawIcon(Canvas &c, Icon icon, int x, int y, int scale) {
 }
 
 void screenToUi(uint8_t rot, float x, float y, float &u, float &v) {
-  const float W = Canvas::W - 1, H = Canvas::H - 1;
+  const float W = Canvas::UI - 1, H = Canvas::UI - 1;
   switch (rot & 3) {
     case 0: u = x; v = y; break;
     case 1: u = y; v = W - x; break;
@@ -131,7 +133,7 @@ void screenToUi(uint8_t rot, float x, float y, float &u, float &v) {
 }
 
 void uiToScreen(uint8_t rot, float u, float v, float &x, float &y) {
-  const float W = Canvas::W - 1, H = Canvas::H - 1;
+  const float W = Canvas::UI - 1, H = Canvas::UI - 1;
   switch (rot & 3) {
     case 0: x = u; y = v; break;
     case 1: x = W - v; y = u; break;
@@ -187,6 +189,90 @@ void Scene::drawRoom(Canvas &c, PetCore &core, Floor f, float level, bool beat) 
   }
   if (level >= 1) c.hline(0, 115, 120, trim);
   c.setRot(saved);
+}
+
+void Scene::buildBowl(const World &w) {
+  const int S = w.arena().size;
+  const float m = w.mid(), outer = m, inner = w.rimRadius();
+  for (int y = 0; y < S; y++) {
+    float dy = y + 0.5f - m;
+    bowlOuter_[y] = (int16_t)(fabsf(dy) < outer ? sqrtf(outer * outer - dy * dy) : -1);
+    bowlInner_[y] = (int16_t)(fabsf(dy) < inner ? sqrtf(inner * inner - dy * dy) : -1);
+  }
+  memset(bowlTiles_, 0, sizeof(bowlTiles_));
+  // Rim tiles: alternate every ~6 px of arc.
+  const float seg = 6.0f / outer;
+  for (int y = 0; y < S; y++) {
+    for (int x = 0; x < S; x++) {
+      float dx = x + 0.5f - m, dy = y + 0.5f - m;
+      float r2 = dx * dx + dy * dy;
+      if (r2 >= outer * outer || r2 < inner * inner) continue;
+      int k = (int)floorf((atan2f(dy, dx) + kPi) / seg);
+      if (k & 1) bowlTiles_[(y * S + x) >> 3] |= (uint8_t)(1 << ((y * S + x) & 7));
+    }
+  }
+  bowlSize_ = S;
+}
+
+void Scene::drawRoundRoom(Canvas &c, PetCore &core, Floor f, bool beat) {
+  const World &w = core.world;
+  if (bowlSize_ != w.arena().size) buildBowl(w);
+  const int S = bowlSize_;
+  const int m = S / 2;
+  const bool dark = core.lightsOut;
+  const bool night = core.night;
+  uint16_t wall = dark ? hex565(0x1C2030) : (night ? hex565(0x3B4F7A) : hex565(0xF2E6C8));
+  uint16_t wallLine = dark ? hex565(0x222838) : (night ? hex565(0x34476E) : hex565(0xE6D6B0));
+  uint16_t trim = dark ? hex565(0x2A2A3A) : hex565(0x8A6A4A);
+  uint16_t floorA = dark ? hex565(0x30283A) : hex565(0xB07850);
+  uint16_t floorB = dark ? hex565(0x282232) : hex565(0x985F3C);
+  if (beat) {
+    floorA = blend565(floorA, hex565(0xFFE070), 110);
+    floorB = blend565(floorB, hex565(0xFF8FA8), 110);
+  }
+  uint16_t *px = c.pixels();
+  for (int y = 0; y < S; y++) {
+    uint16_t *row = px + y * S;
+    int ho = bowlOuter_[y], hi = bowlInner_[y];
+    for (int x = 0; x < S; x++) row[x] = col::BLACK;
+    if (ho < 0) continue;
+    for (int x = m - ho; x < m + ho; x++) {
+      int dx = x < m ? m - 1 - x : x - m;  // distance from the centre column
+      if (hi >= 0 && dx < hi) {
+        row[x] = wall;
+      } else {
+        int i = y * S + x;
+        row[x] = (bowlTiles_[i >> 3] >> (i & 7)) & 1 ? floorA : floorB;
+      }
+    }
+    // trim where the wall meets the rim
+    if (hi > 0) {
+      row[m - hi] = trim;
+      row[m + hi - 1] = trim;
+    }
+  }
+  // Wall stripes and the window, turned so "up" is away from the floor.
+  uint8_t saved = c.rot();
+  c.setRot(floorRot(f));
+  for (int x = m % 16 + 8; x < S; x += 16) {
+    int h = bowlInner_[x] - 3;
+    if (h > 0) c.vline(x, m - h, 2 * h, wallLine);
+  }
+  uint16_t sky = dark ? hex565(0x101828) : (night ? hex565(0x1C2448) : hex565(0x9CD8FF));
+  int wy = m - (int)(w.rimRadius() * 0.72f);
+  c.fillRect(m - 16, wy, 32, 22, trim);
+  c.fillRect(m - 14, wy + 2, 28, 18, sky);
+  c.vline(m - 1, wy + 2, 18, trim);
+  c.hline(m - 14, wy + 10, 28, trim);
+  if (night || dark) {
+    c.fillCircle(m + 8, wy + 7, 3, hex565(0xFFF4C0));
+    c.fillCircle(m + 9, wy + 6, 2, sky);
+  } else {
+    c.fillCircle(m - 8, wy + 7, 3, hex565(0xFFE070));
+  }
+  c.setRot(saved);
+  // the trim ring (top and bottom rows of each column are covered by the rows above)
+  c.circle(m, m, (int)w.rimRadius(), trim);
 }
 
 // ============================================================ props
@@ -301,7 +387,7 @@ void Scene::drawPet(Canvas &c, PetCore &core, const Brain &brain) {
     uint8_t saved = c.rot();
     c.setRot(rot);
     float u, w;
-    screenToUi(rot, qx, qy, u, w);
+    c.toLocal(qx, qy, u, w);
     c.text((int)u, (int)w, "?", K_WHITE, 2);
     c.setRot(saved);
   }
@@ -333,7 +419,7 @@ void Scene::drawParticles(Canvas &c, PetCore &core, Floor f) {
         uint8_t saved = c.rot();
         c.setRot(rot);
         float u, v;
-        screenToUi(rot, (float)x, (float)y, u, v);
+        c.toLocal((float)x, (float)y, u, v);
         c.text((int)u, (int)v, "Z", core.lightsOut ? K_GREY : K_DGREY, p.life > p.max * 0.5f ? 1 : 2);
         c.setRot(saved);
         break;
@@ -356,39 +442,48 @@ void Scene::drawWorld(Canvas &c, PetCore &core, const Brain &brain, float dt) {
     }
   }
   c.setRot(0);
-  drawRoom(c, core, f, 1, beat);
-  if (fade_ > 0) {
-    fade_ -= dt / 0.3f;
-    if (fade_ > 0) drawRoom(c, core, prevFloor_, fade_, false);
+  if (core.world.round()) {
+    drawRoundRoom(c, core, f, beat);
+    fade_ = 0;
+  } else {
+    drawRoom(c, core, f, 1, beat);
+    if (fade_ > 0) {
+      fade_ -= dt / 0.3f;
+      if (fade_ > 0) drawRoom(c, core, prevFloor_, fade_, false);
+    }
   }
   drawProps(c, core);
   drawPet(c, core, brain);
   drawParticles(c, core, f);
-  if (core.lightsOut) c.shade(0, 0, 120, 120, 0.55f);
+  if (core.lightsOut) c.shade(0, 0, c.size(), c.size(), 0.55f);
 }
 
 // ============================================================ HUD
 
 void Scene::drawHud(Canvas &c, PetCore &core, const Brain &brain, uint8_t uiRot, bool statusBar, int battery,
                     int charging, const char *clock) {
+  // On the round tile the HUD uses a bigger centred view, so the status bar
+  // sits near the top of the circle (where a 120 px bar still fits the chord).
+  c.centredView(core.world.round() ? c.size() - 2 * HUD_ROUND_INSET : Canvas::UI);
   c.setRot(uiRot);
+  const int vs = c.viewSize(), x0 = (vs - Canvas::UI) / 2;
   // speech bubble near the pet's head, upright for the reader
   if (core.speechTimer > 0 && core.speech[0]) {
     const Body &b = core.world.body();
     Vec2 up = floorDown(b.surface) * -1.0f;
     Vec2 head = b.pos() + up * (b.half + 4);
     float u, v;
-    screenToUi(uiRot, head.x, head.y, u, v);
+    c.toLocal(head.x, head.y, u, v);
     int w = Canvas::textWidth(core.speech) + 6, h = 9;
-    int bx = clampi((int)u - w / 2, 1, 119 - w), by = clampi((int)v - h - 2, 11, 110 - h);
+    int bx = clampi((int)u - w / 2, 1, vs - 1 - w), by = clampi((int)v - h - 2, 11, vs - 10 - h);
     c.fillRect(bx, by, w, h, K_WHITE);
     c.rect(bx, by, w, h, K_OUT);
     c.text(bx + 3, by + 2, core.speech, K_OUT);
   }
 
   if (statusBar) {
-    c.shade(0, 0, 120, 9, 0.35f);
-    int x = 2;
+    c.shade(x0, 0, Canvas::UI, 9, 0.35f);
+    int x = x0 + 2;
     if (core.life.callH >= 0 && ((int)(t_ * 3)) % 2 == 0) {
       c.text(x, 2, "!", col::WARN);
       x += 5;
@@ -414,22 +509,23 @@ void Scene::drawHud(Canvas &c, PetCore &core, const Brain &brain, uint8_t uiRot,
       c.text(x, 2, b, K_LBRN);
       x += Canvas::textWidth(b) + 2;
     }
-    if (clock && clock[0]) c.textCentered(60, 2, clock, col::TEXT);
+    if (clock && clock[0]) c.textCentered(x0 + 60, 2, clock, col::TEXT);
     // battery
     if (battery >= 0) {
       bool low = battery < tune::BATTERY_LOW_PCT;
       if (!low || ((int)(t_ * 2)) % 2 == 0) {
         uint16_t bc = low ? col::BAD : (battery < 40 ? col::WARN : col::GOOD);
-        c.rect(105, 2, 11, 5, col::TEXT);
-        c.vline(116, 3, 3, col::TEXT);
-        c.fillRect(106, 3, (battery * 9 + 50) / 100, 3, bc);
+        c.rect(x0 + 105, 2, 11, 5, col::TEXT);
+        c.vline(x0 + 116, 3, 3, col::TEXT);
+        c.fillRect(x0 + 106, 3, (battery * 9 + 50) / 100, 3, bc);
       }
-      if (charging == 1) c.text(99, 2, "+", K_YEL);
+      if (charging == 1) c.text(x0 + 99, 2, "+", K_YEL);
     }
   }
-  c.setRot(0);
+  c.uiView();
   if (core.imuOverlay) drawImuOverlay(c, core, brain);
   if (core.beatOverlay) drawBeatOverlay(c, core);
+  c.worldView();
 }
 
 void Scene::drawImuOverlay(Canvas &c, PetCore &core, const Brain &brain) {
@@ -461,8 +557,20 @@ void Scene::drawBeatOverlay(Canvas &c, PetCore &core) {
     }
   }
   if (beatFlash_ > 0) {
-    c.rect(0, 0, 120, 120, col::ACCENT);
-    c.rect(1, 1, 118, 118, col::ACCENT);
+    // flash the edge of the whole screen
+    int vx = c.viewX(), vy = c.viewY(), vs = c.viewSize();
+    uint8_t r = c.rot();
+    c.worldView();
+    int S = c.size();
+    if (core.world.round()) {
+      c.circle(S / 2, S / 2, S / 2 - 1, col::ACCENT);
+      c.circle(S / 2, S / 2, S / 2 - 2, col::ACCENT);
+    } else {
+      c.rect(0, 0, S, S, col::ACCENT);
+      c.rect(1, 1, S - 2, S - 2, col::ACCENT);
+    }
+    c.setView(vx, vy, vs);
+    c.setRot(r);
     beatFlash_ -= 0.25f;
   }
   c.shade(2, 12, 40, 30, 0.4f);

@@ -1,10 +1,13 @@
 #pragma once
-// The 120x120 logical canvas (spec section 7.1), RGB565. The host scales it
-// up onto the real panel.
+// The logical canvas (spec section 7.1), RGB565, square: 120x120 on the
+// square tile, 206x206 on the round one. The host scales it 2x onto the panel.
 //
-// Drawing goes through a rotation (0..3 clockwise quarter turns) so UI code
-// can draw "upright" while the tile is turned; setRot(0) for world drawing.
-// Text uses a 3x5 pixel font on a 4x6 cell, upper case only.
+// Drawing goes into a square *view*: the whole canvas for the world
+// (worldView), or the centred 120x120 box that menus and games are laid out
+// in (uiView). Inside the view, drawing goes through a rotation (0..3
+// clockwise quarter turns) so UI code can draw "upright" while the tile is
+// turned. Coordinates are view-local; on the square tile both views are the
+// whole canvas. Text uses a 3x5 pixel font on a 4x6 cell, upper case only.
 
 #include <stddef.h>
 #include <stdint.h>
@@ -35,16 +38,32 @@ constexpr uint16_t SKY = hex565(0x41A6F6);
 
 class Canvas {
  public:
-  static constexpr int W = 120, H = 120;
+  static constexpr int UI = 120;   // size of the UI box
+  static constexpr int MAX = 206;  // largest canvas (412 px round panel at 2x)
 
+  explicit Canvas(int size = UI);
+  int size() const { return S_; }
   uint16_t *pixels() { return px_; }
   const uint16_t *pixels() const { return px_; }
 
+  // Views (also resets the rotation and the clip).
+  void worldView() { setView(0, 0, S_); }
+  void uiView() { setView((S_ - UI) / 2, (S_ - UI) / 2, UI); }
+  // A centred view of the given size.
+  void centredView(int size) { setView((S_ - size) / 2, (S_ - size) / 2, size); }
+  void setView(int x, int y, int size);
+  int viewSize() const { return vs_; }
+  int viewX() const { return vx_; }
+  int viewY() const { return vy_; }
+
   void setRot(uint8_t r) { rot_ = r & 3; }
   uint8_t rot() const { return rot_; }
-  // Optional clip rectangle in un-rotated (screen) coordinates.
+  // Canvas pixel -> view-local coordinates for the current rotation, and back.
+  void toLocal(float x, float y, float &u, float &v) const;
+  void toCanvas(float u, float v, float &x, float &y) const;
+  // Optional clip rectangle in un-rotated view coordinates.
   void setClip(int x, int y, int w, int h);
-  void noClip() { setClip(0, 0, W, H); }
+  void noClip() { setClip(0, 0, vs_, vs_); }
 
   void clear(uint16_t c);
   void pset(int x, int y, uint16_t c);
@@ -67,7 +86,7 @@ class Canvas {
 
   // Indexed sprite: index 0 transparent. Drawn with its own rotation (around
   // the sprite box) and optional mirror, top-left of the rotated box at (x, y),
-  // in screen coordinates (ignores setRot).
+  // in un-rotated view coordinates (ignores setRot).
   void blit(const uint8_t *idx, int w, int h, const uint16_t *pal, int x, int y, uint8_t rot, bool flipX);
   // Small picture written as strings, one char per pixel; '.' or ' ' is
   // transparent, other chars are looked up in `map` ("Xc" pairs).
@@ -76,9 +95,13 @@ class Canvas {
 
  private:
   void plot(int x, int y, uint16_t c);
-  uint16_t px_[W * H];
+  // View-local, rotated -> canvas.
+  void map(int x, int y, int &cx, int &cy) const;
+  int S_ = UI;
+  int vx_ = 0, vy_ = 0, vs_ = UI;
   uint8_t rot_ = 0;
-  int cx0_ = 0, cy0_ = 0, cx1_ = W, cy1_ = H;
+  int cx0_ = 0, cy0_ = 0, cx1_ = UI, cy1_ = UI;  // clip, canvas coordinates
+  uint16_t px_[MAX * MAX];
 };
 
 }  // namespace pet

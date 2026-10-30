@@ -210,13 +210,118 @@ void test_physics_cling_climb_and_fall() {
   TEST_ASSERT_TRUE(reached);
   TEST_ASSERT_EQUAL((int)Floor::East, (int)b.surface);
   TEST_ASSERT_EQUAL((int)BodyState::Grounded, (int)b.state);
-  TEST_ASSERT_FLOAT_WITHIN(0.5f, World::HI - 24, b.x);
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, w.hi() - 24, b.x);
   // flip: falls across the box and lands on the west wall
   w.floorChanged(Floor::East, Floor::West, false, true);
   TEST_ASSERT_EQUAL((int)BodyState::Airborne, (int)b.state);
   for (int i = 0; i < 200; i++) w.step(0.02f, Vec2(-1, 0), Floor::West, false, true);
   TEST_ASSERT_EQUAL((int)Floor::West, (int)b.surface);
-  TEST_ASSERT_FLOAT_WITHIN(0.5f, World::LO + 24, b.x);
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, w.lo() + 24, b.x);
+}
+
+// ---- the round bowl (1.46B)
+
+static World bowl(float half) {
+  World w;
+  Arena a;
+  a.round = true;
+  a.size = 206;
+  w.setArena(a);
+  w.reset(half);
+  return w;
+}
+
+static float angDiff(float a, float b) { return fabsf(wrapDeg(a - b)); }
+
+void test_bowl_geometry_roundtrip() {
+  World w = bowl(24);
+  TEST_ASSERT_TRUE(w.round());
+  TEST_ASSERT_FLOAT_WITHIN(0.01f, 103, w.mid());
+  const Floor fs[4] = {Floor::South, Floor::West, Floor::North, Floor::East};
+  for (Floor f : fs) {
+    for (float along = w.lo(); along <= w.hi(); along += 10) {
+      Vec2 p = w.onFloor(f, along, 0);
+      TEST_ASSERT_FLOAT_WITHIN(0.5f, along, w.alongOf(f, p));
+      float dx = p.x - w.mid(), dy = p.y - w.mid();
+      TEST_ASSERT_FLOAT_WITHIN(0.5f, w.rimRadius(), sqrtf(dx * dx + dy * dy));
+    }
+  }
+  // "right" on the floor is the same way as on the square tile
+  TEST_ASSERT_TRUE(w.onFloor(Floor::South, w.mid() + 10, 0).x > w.mid());
+  TEST_ASSERT_TRUE(w.onFloor(Floor::East, w.mid() + 10, 0).y < w.mid());
+  // the pet starts at the bottom, feet on the rim
+  const Body &b = w.body();
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, w.mid(), b.x);
+  TEST_ASSERT_FLOAT_WITHIN(0.5f, w.mid() + w.rimRadius() - 24, b.y);
+}
+
+// Turn gravity from down to `toDeg` over `seconds`, then hold for 3 s.
+static void turnGravity(World &w, float toDeg, float seconds, bool grip, bool asleep, bool &fell) {
+  fell = false;
+  const float dt = 0.02f;
+  int n = (int)(seconds / dt);
+  for (int i = 0; i <= n + 150; i++) {
+    float a = 90 + (toDeg - 90) * minf(1, i / (float)n);
+    Vec2 g(cosf(a / kRadToDeg), sinf(a / kRadToDeg));
+    w.step(dt, g, World::quarterOf(a), asleep, grip);
+    fell |= w.body().state == BodyState::Airborne;
+  }
+}
+
+void test_bowl_pet_follows_a_slow_turn() {
+  World w = bowl(20);
+  bool fell;
+  turnGravity(w, 0, 4.0f, true, false, fell);  // a slow quarter turn to the east
+  const Body &b = w.body();
+  TEST_ASSERT_FALSE(fell);
+  TEST_ASSERT_TRUE(b.state == BodyState::Grounded || b.state == BodyState::Clinging);
+  TEST_ASSERT_TRUE(angDiff(b.ang, 0) < 40);
+  TEST_ASSERT_EQUAL((int)Floor::East, (int)b.surface);
+  // and it stays inside the bowl
+  float dx = b.x - w.mid(), dy = b.y - w.mid();
+  TEST_ASSERT_TRUE(sqrtf(dx * dx + dy * dy) < w.rimRadius());
+}
+
+void test_bowl_sleeper_slides_to_the_bottom() {
+  World w = bowl(16);
+  bool fell;
+  turnGravity(w, 180, 3.0f, false, true, fell);  // can't grip: it slides round
+  const Body &b = w.body();
+  TEST_ASSERT_FALSE(fell);
+  TEST_ASSERT_TRUE(angDiff(b.ang, 180) < 25);
+  TEST_ASSERT_EQUAL((int)Floor::West, (int)b.surface);
+}
+
+void test_bowl_flip_drops_the_pet_across() {
+  World w = bowl(20);
+  w.floorChanged(Floor::South, Floor::North, false, true);
+  TEST_ASSERT_EQUAL((int)BodyState::Airborne, (int)w.body().state);
+  bool landed = false;
+  for (int i = 0; i < 300; i++) landed |= w.step(0.02f, Vec2(0, -1), Floor::North, false, true).reachedFloor;
+  TEST_ASSERT_TRUE(landed);
+  TEST_ASSERT_EQUAL((int)Floor::North, (int)w.body().surface);
+  TEST_ASSERT_TRUE(angDiff(w.body().ang, -90) < 20);
+  // a slow quarter turn does not throw it off
+  w.floorChanged(Floor::North, Floor::East, false, true);
+  TEST_ASSERT_TRUE(w.body().state != BodyState::Airborne);
+}
+
+void test_bowl_props_stay_in_and_settle() {
+  World w = bowl(20);
+  Prop *ball = w.addProp(PropKind::Ball, w.mid() + 60, w.mid() - 40, 3);
+  Prop *poop = w.addProp(PropKind::Poop, w.mid() - 50, w.mid(), 3.5f);
+  for (int i = 0; i < 400; i++) w.step(0.02f, Vec2(0, 1), Floor::South, false, true);
+  for (Prop *p : {ball, poop}) {
+    float dx = p->x - w.mid(), dy = p->y - w.mid();
+    float d = sqrtf(dx * dx + dy * dy);
+    TEST_ASSERT_TRUE(d <= w.rimRadius() - p->half + 0.5f);
+    TEST_ASSERT_TRUE(p->resting);
+    TEST_ASSERT_TRUE(dy > 0);  // ended in the lower half
+  }
+  // tip the tile: they roll round toward the new bottom
+  float x0 = ball->x;
+  for (int i = 0; i < 200; i++) w.step(0.02f, Vec2(1, 0), Floor::East, false, true);
+  TEST_ASSERT_TRUE(ball->x > x0);
 }
 
 void test_physics_tilt_drift_and_props_slide() {
@@ -735,6 +840,11 @@ int main(int, char **) {
   RUN_TEST(test_floor_fast_turn_flag);
   RUN_TEST(test_physics_cling_climb_and_fall);
   RUN_TEST(test_physics_tilt_drift_and_props_slide);
+  RUN_TEST(test_bowl_geometry_roundtrip);
+  RUN_TEST(test_bowl_pet_follows_a_slow_turn);
+  RUN_TEST(test_bowl_sleeper_slides_to_the_bottom);
+  RUN_TEST(test_bowl_flip_drops_the_pet_across);
+  RUN_TEST(test_bowl_props_stay_in_and_settle);
   RUN_TEST(test_stats_decay_and_catchup_cap);
   RUN_TEST(test_life_stages_and_demeanour);
   RUN_TEST(test_life_end_of_life_modes);

@@ -35,12 +35,19 @@
 
 namespace {
 
-// Logical canvas pixel -> panel pixels. Both boards use 2x for now: on the
-// round 1.46B that keeps the whole square box inside the circle (3x would
-// need the circular mask the spec defers).
+// Logical canvas pixel -> panel pixels. Both boards use 2x, and the canvas
+// covers the whole panel: 120x120 on the square 1.54, 206x206 on the round
+// 1.46B, where the room is a round bowl filling the circle.
 constexpr int SCALE = 2;
-constexpr int OFF_X = (Display::WIDTH - pet::Canvas::W * SCALE) / 2;
-constexpr int OFF_Y = (Display::HEIGHT - pet::Canvas::H * SCALE) / 2;
+constexpr int CANVAS = Display::WIDTH / SCALE;
+static_assert(CANVAS <= pet::Canvas::MAX, "panel too big for the pet canvas");
+constexpr int OFF_X = (Display::WIDTH - CANVAS * SCALE) / 2;
+constexpr int OFF_Y = (Display::HEIGHT - CANVAS * SCALE) / 2;
+#if defined(BOARD_WS_146B)
+constexpr bool ROUND = true;
+#else
+constexpr bool ROUND = false;
+#endif
 constexpr uint32_t IMU_PERIOD_MS = 5;  // 200 Hz
 constexpr const char *SAVE_DIR = "/pet";
 constexpr const char *SAVE_PATH = "/pet/save.bin";
@@ -71,7 +78,7 @@ class Tilepet : public App, public pet::PetHost {
     gTilepet = this;
     if (!canvas_) {
       void *mem = heap_caps_malloc(sizeof(pet::Canvas), MALLOC_CAP_SPIRAM);
-      canvas_ = mem ? new (mem) pet::Canvas() : new pet::Canvas();
+      canvas_ = mem ? new (mem) pet::Canvas(CANVAS) : new pet::Canvas(CANVAS);
     }
     sdOk_ = board::sdMount();
     if (!started_) {
@@ -145,7 +152,7 @@ class Tilepet : public App, public pet::PetHost {
   void onTouch(const TouchInput &in) override {
     float x = (in.x - OFF_X) / (float)SCALE, y = (in.y - OFF_Y) / (float)SCALE;
     if (in.event == TouchEvent::Down) {
-      touchInBox_ = x >= 0 && y >= 0 && x < pet::Canvas::W && y < pet::Canvas::H;
+      touchInBox_ = x >= 0 && y >= 0 && x < CANVAS && y < CANVAS;
       checkZAxis();
     }
     if (!touchInBox_) return;
@@ -200,18 +207,25 @@ class Tilepet : public App, public pet::PetHost {
       clearPanel_ = false;
     }
     const uint16_t *src = canvas_->pixels();
-    for (int y = 0; y < pet::Canvas::H; y++) {
+    for (int y = 0; y < CANVAS; y++) {
       uint16_t *row = fb + (OFF_Y + y * SCALE) * Display::WIDTH + OFF_X;
-      const uint16_t *s = src + y * pet::Canvas::W;
-      for (int x = 0; x < pet::Canvas::W; x++) {
+      const uint16_t *s = src + y * CANVAS;
+      for (int x = 0; x < CANVAS; x++) {
         uint16_t c = s[x];
         for (int k = 0; k < SCALE; k++) row[x * SCALE + k] = c;
       }
-      for (int k = 1; k < SCALE; k++) memcpy(row + k * Display::WIDTH, row, pet::Canvas::W * SCALE * sizeof(uint16_t));
+      for (int k = 1; k < SCALE; k++) memcpy(row + k * Display::WIDTH, row, CANVAS * SCALE * sizeof(uint16_t));
     }
   }
 
   // ======================================================== PetHost
+
+  pet::Arena arena() override {
+    pet::Arena a;
+    a.round = ROUND;
+    a.size = CANVAS;
+    return a;
+  }
 
   uint32_t millis() override { return ::millis(); }
 
@@ -393,7 +407,7 @@ class Tilepet : public App, public pet::PetHost {
   }
 
  private:
-  static float clampLogical(float v) { return v < 0 ? 0 : (v > pet::Canvas::W - 1 ? pet::Canvas::W - 1 : v); }
+  static float clampLogical(float v) { return v < 0 ? 0 : (v > CANVAS - 1 ? CANVAS - 1 : v); }
 
   // ---- IMU
   void startImu() {

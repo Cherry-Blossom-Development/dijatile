@@ -1,6 +1,13 @@
 #pragma once
 // The gravity box (spec section 8): floor selection, the pet's body and the
-// props that tumble around the room. Logical pixels, 120x120.
+// props that tumble around the room. Logical pixels.
+//
+// Two arenas: a square box (the 1.54, 120x120, four flat floors) and a round
+// bowl (the 1.46B, 206x206): the floor is the curved rim, the pet stands on
+// it at a rim angle and slides or walks toward the lowest point. Both keep
+// the same interface: a body stands on a quarter `surface` (S/W/N/E, which
+// sets the sprite's rotation), and positions along a surface are an "along"
+// coordinate around mid() (arc length on the bowl).
 
 #include <stdint.h>
 
@@ -49,6 +56,7 @@ struct Body {
   float airSpin = 0;             // tumble angle accumulator, quarter turns
   bool impactPending = false;    // hard landing to report
   float impactSpeed = 0;
+  float ang = 90;                // bowl only: rim angle of the contact point, deg (90 = screen bottom)
 
   Vec2 pos() const { return {x, y}; }
   // Rotation for drawing: stands on its surface, or tumbles while airborne.
@@ -72,12 +80,28 @@ struct WorldEvents {
   float landingSpeed = 0;
   bool poopHit = false;  // a falling poop landed on the pet
   bool reachedFloor = false;
+  bool surfaceChanged = false;  // bowl: the pet moved round onto another quarter
+};
+
+struct Arena {
+  bool round = false;
+  int size = 120;  // canvas size, logical px
 };
 
 class World {
  public:
   static constexpr int MAX_PROPS = 12;
-  static constexpr float LO = 4.0f, HI = 116.0f;  // inside of the walls
+  static constexpr float WALL = 4.0f;  // wall / rim thickness
+
+  void setArena(const Arena &a);
+  const Arena &arena() const { return arena_; }
+  bool round() const { return arena_.round; }
+  // Middle of the room, and the range of the along coordinate a body can walk
+  // in (square: the inside of the walls; bowl: about 50 degrees either side).
+  float mid() const { return arena_.size * 0.5f; }
+  float lo() const { return lo_; }
+  float hi() const { return hi_; }
+  float rimRadius() const { return rimR_; }  // bowl: inside of the rim
 
   void reset(float half);
   // Real gravity (g, screen plane) and the floor; flat tiles get a gentle
@@ -87,6 +111,11 @@ class World {
   WorldEvents step(float dt, Vec2 g, Floor floor, bool asleep, bool canGrip);
   // Floor changed: decide whether the pet clings, tumbles or just stands.
   void floorChanged(Floor from, Floor to, bool fast, bool canCling);
+
+  // Stand the pet upright on floor f at `along` (also its rim angle on the bowl).
+  void standOn(Floor f, float along);
+  // Along coordinate at a fraction 0..1 of the walkable range.
+  float alongAt(float frac) const { return lo_ + (hi_ - lo_) * frac; }
 
   void hold(float x, float y);
   void release(float vx, float vy);
@@ -100,18 +129,31 @@ class World {
   Prop *findProp(PropKind kind);
   int countProps(PropKind kind) const;
   void removeProps(PropKind kind);
-  // Centre of the floor along the wall, a given distance in from it.
-  static Vec2 onFloor(Floor f, float along, float height);
+  // Centre of something standing on floor f at `along`, `height` in from it
+  // (on the bowl: on the rim, upright for f).
+  Vec2 onFloor(Floor f, float along, float height) const;
   // Position along the surface ("right" coordinate) of a point.
-  static float alongOf(Floor f, Vec2 p);
+  float alongOf(Floor f, Vec2 p) const;
+  // Bowl: the quarter nearest to a rim angle.
+  static Floor quarterOf(float angDeg);
 
   Vec2 gravity(Vec2 g, Floor floor) const;
 
  private:
   void stepBody(float dt, Vec2 g, Floor floor, bool asleep, bool grip, WorldEvents &ev);
   void stepProp(Prop &p, float dt, Vec2 g, Floor floor, WorldEvents &ev);
+  void stepBodyRound(float dt, Vec2 g, Floor floor, bool asleep, bool grip, WorldEvents &ev);
+  void stepPropRound(Prop &p, float dt, Vec2 g, Floor floor, WorldEvents &ev);
   void clampToBox(float &x, float &y, float half) const;
+  void checkPoopHit(const Prop &p, WorldEvents &ev);
+  // Bowl helpers.
+  Vec2 rimPoint(float angDeg, float inset) const;
+  void placeOnRim(Body &b);
+  void landOnRim(Body &b, float angDeg, WorldEvents &ev);
+  void fallOff(Body &b, Vec2 vel);
 
+  Arena arena_;
+  float lo_ = WALL, hi_ = 120 - WALL, rimR_ = 60 - WALL;
   Body body_;
   Prop props_[MAX_PROPS];
   float poopHitCooldown_ = 0;

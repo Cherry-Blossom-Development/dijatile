@@ -36,6 +36,9 @@ void PetApp::say(const char *fmt, ...) {
 void PetApp::begin(PetHost *host) {
   host_ = host;
   core_.host = host;
+  const Arena arena = host->arena();
+  core_.world.setArena(arena);
+  uiOff_ = (arena.size - Canvas::UI) * 0.5f;
   core_.rng.reseed(host->random32());
   core_.sdBeat.setLatencyMs(DANCE_LATENCY_MS);
   core_.micBeat.setLatencyMs(-MIC_LATENCY_MS);
@@ -84,11 +87,11 @@ void PetApp::ensureProps() {
   World &w = core_.world;
   Floor f = core_.floorSel.floor();
   if (!w.findProp(PropKind::Bowl)) {
-    Vec2 p = World::onFloor(f, 24, 3);
+    Vec2 p = w.onFloor(f, w.alongAt(0.18f), 3);
     w.addProp(PropKind::Bowl, p.x, p.y, 3);
   }
   if (core_.life.stage >= Stage::Child && !w.findProp(PropKind::Ball)) {
-    Vec2 p = World::onFloor(f, 92, 3);
+    Vec2 p = w.onFloor(f, w.alongAt(0.79f), 3);
     w.addProp(PropKind::Ball, p.x, p.y, 3);
   }
 }
@@ -120,12 +123,7 @@ void PetApp::newPet(bool inherit, uint32_t seed) {
   core_.lifeSim.start(core_.genome, core_.life);
   nameFromSeed(seed, core_.name, NAME_LEN);
   core_.world.reset(spriteBox(Stage::Egg) / 2.0f);
-  Floor f = core_.floorSel.floor();
-  Body &b = core_.world.body();
-  b.surface = f;
-  Vec2 p = World::onFloor(f, 60, b.half);
-  b.x = p.x;
-  b.y = p.y;
+  core_.world.standOn(core_.floorSel.floor(), core_.world.mid());
   ensureProps();
   brain_.reset(core_);
   farewellT_ = 0;
@@ -164,7 +162,7 @@ void PetApp::applySave(const SaveData &s) {
   core_.world.reset(spriteBox(core_.life.stage) / 2.0f);
   Floor f = core_.floorSel.floor();
   for (int i = 0; i < s.poops && i < MAX_POOPS; i++) {
-    Vec2 p = World::onFloor(f, 30 + i * 12, 3.5f);
+    Vec2 p = core_.world.onFloor(f, core_.world.alongAt((26 + i * 12) / 112.0f), 3.5f);
     core_.world.addProp(PropKind::Poop, p.x, p.y, 3.5f);
   }
   ensureProps();
@@ -462,6 +460,10 @@ bool PetApp::wantsFrame() {
 
 // ============================================================ input
 
+void PetApp::toUi(uint8_t rot, float x, float y, float &u, float &v) const {
+  screenToUi(rot, x - uiOff_, y - uiOff_, u, v);
+}
+
 void PetApp::onInput(const InputEvent &e) {
   if (!begun_ || suspended_) return;
   uint32_t now = host_->millis();
@@ -509,7 +511,7 @@ void PetApp::onInput(const InputEvent &e) {
 
 void PetApp::petScreenInput(const InputEvent &e, bool player) {
   float u, v;
-  screenToUi(uiRot_, e.x, e.y, u, v);
+  toUi(uiRot_, e.x, e.y, u, v);
   switch (e.kind) {
     case InputKind::Key:
       brain_.buttonPressed();
@@ -550,7 +552,7 @@ void PetApp::petScreenInput(const InputEvent &e, bool player) {
     case InputKind::Swipe:
       if (player) {
         float su, sv;
-        screenToUi(uiRot_, e.startX, e.startY, su, sv);
+        toUi(uiRot_, e.startX, e.startY, su, sv);
         float du = u - su, dv = v - sv;
         if (fabsf(du) > fabsf(dv)) {
           playerKey(du < 0 ? Key::Next : Key::SelectLong);

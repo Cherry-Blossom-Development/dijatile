@@ -101,6 +101,8 @@ class PetApp {
   void clockText(char *out, size_t n);
 
   void say(const char *fmt, ...);
+  // Canvas (touch) coordinates -> the centred, rotated UI box.
+  void toUi(uint8_t rot, float x, float y, float &u, float &v) const;
 
   PetCore core_;
   Brain brain_;
@@ -130,6 +132,7 @@ class PetApp {
   int sel_ = 0, scroll_ = 0;
   int page_ = 0;
   uint8_t uiRot_ = 0, uiRotCandidate_ = 0;
+  float uiOff_ = 0;  // where the UI box starts on the canvas
   float uiRotT_ = 0;
   float menuAnim_ = 0;
   bool statusBar_ = true;
