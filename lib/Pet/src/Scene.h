@@ -45,6 +45,10 @@ class Scene {
  private:
   void drawRoom(Canvas &c, PetCore &core, Floor f, float level, bool beat);
   void drawRoundRoom(Canvas &c, PetCore &core, Floor f, bool beat);
+  // Aquatic pets: the same rooms underwater.
+  void drawWaterRoom(Canvas &c, PetCore &core, Floor f, bool beat);
+  void drawRoundWaterRoom(Canvas &c, PetCore &core, Floor f, bool beat);
+  void drawSeaweed(Canvas &c, int x, int rootY, int height, int seed, bool dark);
   void buildBowl(const World &w);
   void drawProps(Canvas &c, PetCore &core);
   void drawPet(Canvas &c, PetCore &core, const Brain &brain);

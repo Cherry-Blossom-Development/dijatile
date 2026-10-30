@@ -16,7 +16,7 @@ const char *actName(Act a) {
                             "hum", "wave", "sillyfall", "pointbowl", "lookpoop", "shiver", "eating", "pooping",
                             "sleeping", "yawning", "celebrate", "refusing", "flinch", "tickled", "annoyed",
                             "backaway", "approach", "nauseous", "scared", "medicine", "listening", "dancing",
-                            "goeat"};
+                            "goeat", "swim"};
   return (int)a < (int)Act::Count ? n[(int)a] : "?";
 }
 
@@ -66,6 +66,7 @@ void Brain::stopWalking() {
 }
 
 void Brain::setAct(Act a, float dur) {
+  if (act_ == Act::Swim && a != Act::Swim) c_->world.stopSwim();  // sink back down
   act_ = a;
   actT_ = 0;
   actDur_ = dur;
@@ -910,7 +911,7 @@ void Brain::chooseIdle() {
     return;
   }
 
-  enum { WANDER, LOOK, SIT, SCRATCH, BALL, BUG, HUM, WAVE, SILLY, N };
+  enum { WANDER, LOOK, SIT, SCRATCH, BALL, BUG, HUM, WAVE, SILLY, SWIM, N };
   float w[N];
   bool grown = L.stage >= Stage::Child;
   Prop *ball = c.world.findProp(PropKind::Ball);
@@ -923,8 +924,9 @@ void Brain::chooseIdle() {
   w[HUM] = 0.6f + g.silly;
   w[WAVE] = 0.5f + 1.5f * g.bold;
   w[SILLY] = g.silly > 0.55f && grown ? 1.5f * g.silly : 0;
+  w[SWIM] = c.world.water() ? 2.5f + 2.0f * g.playful : 0;
   if (cranky_ > 0) {
-    w[BALL] = w[BUG] = w[HUM] = w[WAVE] = w[SILLY] = 0;
+    w[BALL] = w[BUG] = w[HUM] = w[WAVE] = w[SILLY] = w[SWIM] = 0;
     w[SIT] += 3;
   }
   if (scared_ > 0) {
@@ -976,6 +978,62 @@ void Brain::chooseIdle() {
       setAct(Act::SillyFall, 1.6f);
       c.sfx.play(Sfx::Giggle);
       break;
+    case SWIM:
+      startSwim();
+      break;
+  }
+}
+
+void Brain::startSwim() {
+  setAct(Act::Swim, SWIM_MAX_S);
+  swimLegs_ = 2 + (int)c_->rng.below(3);
+  nextSwimPoint();
+}
+
+// A random spot in the open water, clear of the walls.
+void Brain::nextSwimPoint() {
+  World &w = c_->world;
+  const Body &b = w.body();
+  const float m = w.mid();
+  float x, y;
+  if (w.round()) {
+    float r = (w.rimRadius() - b.half - 6) * sqrtf(c_->rng.unit());
+    float a = c_->rng.range(0, 2 * kPi);
+    x = m + cosf(a) * r;
+    y = m + sinf(a) * r;
+  } else {
+    x = c_->rng.range(w.lo() + b.half + 4, w.hi() - b.half - 4);
+    y = c_->rng.range(w.lo() + b.half + 4, w.hi() - b.half - 4);
+  }
+  w.swimTo(x, y, speed(WALK_PX_S) * SWIM_SPEED_MUL);
+}
+
+// Water: bubbles drift up from the floor now and then, and from a swimming
+// (or sleeping) pet.
+void Brain::updateBubbles(float dt) {
+  PetCore &c = *c_;
+  if (!c.world.water()) return;
+  const World &w = c.world;
+  const Floor f = c.floorSel.floor();
+  const Vec2 upv = floorDown(f) * -1.0f;
+  auto bubble = [&](Vec2 p) {
+    float v = c.rng.range(BUBBLE_RISE_MIN, BUBBLE_RISE_MAX);
+    c.spawn(PK_BUBBLE, p.x, p.y, upv.x * v, upv.y * v, w.arena().size * 0.85f / v);
+  };
+  bubbleT_ -= dt;
+  if (bubbleT_ <= 0) {
+    bubbleT_ = c.rng.range(BUBBLE_MIN_S, BUBBLE_MAX_S);
+    int n = c.rng.chance(0.25f) ? 3 : 1;  // sometimes a little string of them
+    float along = c.rng.range(w.lo(), w.hi());
+    for (int i = 0; i < n; i++) bubble(w.onFloor(f, along + c.rng.range(-2, 2), 2 + i * 5));
+  }
+  const Body &b = w.body();
+  if (b.state == BodyState::Swimming || asleep_) {
+    petBubbleT_ -= dt;
+    if (petBubbleT_ <= 0) {
+      petBubbleT_ = asleep_ ? c.rng.range(2.5f, 4.0f) : c.rng.range(1.0f, 2.5f);
+      bubble(headPos());
+    }
   }
 }
 
@@ -1073,6 +1131,20 @@ void Brain::updateAct(float dt) {
       break;
     case Act::GoEat:
       if ((!walking_ && grounded) || actT_ > GO_EAT_MAX_S) startEating();
+      break;
+    case Act::Swim:
+      if (b.state != BodyState::Swimming) {
+        if (actT_ > 0.5f) setAct(Act::Idle);  // picked up, or knocked off course
+      } else if (actT_ > actDur_) {
+        setAct(Act::Idle);  // sinks back down
+      } else if (c.world.swimArrived()) {
+        if (--swimLegs_ <= 0) {
+          setAct(Act::Idle);
+          idleT_ = c.rng.range(2, 4);
+        } else {
+          nextSwimPoint();
+        }
+      }
       break;
     case Act::Eating:
       if (actT_ >= actDur_) {
@@ -1273,7 +1345,11 @@ void Brain::updateFace(float dt) {
   } else {
     switch (b.state) {
       case BodyState::Held: a = Anim::Dangle; break;
-      case BodyState::Airborne: a = asleep_ ? Anim::Sleep : Anim::Tumble; break;
+      case BodyState::Swimming: a = Anim::Swim; break;
+      case BodyState::Airborne:
+        // in water a falling pet drifts down paddling, it doesn't tumble
+        a = asleep_ ? Anim::Sleep : (c.world.water() ? Anim::Swim : Anim::Tumble);
+        break;
       case BodyState::Landing: a = Anim::Land; break;
       case BodyState::Clinging: a = Anim::Climb; break;
       default: {
@@ -1366,6 +1442,15 @@ void Brain::updateParticles(float dt) {
     }
     p.x += p.vx * dt;
     p.y += p.vy * dt;
+    if (p.kind == PK_BUBBLE) {
+      // wobble from side to side as it rises
+      float sp = sqrtf(p.vx * p.vx + p.vy * p.vy);
+      if (sp > 0.1f) {
+        float wob = sinf(p.life * 5.0f + p.max * 3.0f) * 6.0f * dt;
+        p.x += -p.vy / sp * wob;
+        p.y += p.vx / sp * wob;
+      }
+    }
   }
   if (c.speechTimer > 0) c.speechTimer -= dt;
 }
@@ -1448,6 +1533,7 @@ void Brain::tick(float dt) {
     else stopWalking();
     updateChatter(dt);
   }
+  updateBubbles(dt);
   updateFace(dt);
   updateParticles(dt);
 }

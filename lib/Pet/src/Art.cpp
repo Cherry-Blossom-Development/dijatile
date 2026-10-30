@@ -68,6 +68,9 @@ const Pose FLINCH[] = {P(-1, 1, -1, -1, -2, L_STAND, R_FRONT, 0), P(0, 0, 0, 0, 
 const Pose LISTEN[] = {P(0, 0, 0, 0, -1, L_STAND, R_LEFTUP, 0), P(0, 0, 0, 0, -2, L_STAND, R_LEFTUP, 0)};
 const Pose CLAP[] = {P(0, 0, 0, 0, 0, L_STAND, R_FRONT, 0), P(0, -1, 0, 0, 0, L_STAND, R_OUT, 0)};
 const Pose FOOTTAP[] = {P(0, 0, 0, 0, 0, L_TUCK, R_DOWN, 0), P(0, 0, 0, 0, 0, L_LIFT, R_DOWN, 0)};
+// leaning into the stroke, arms paddling, legs kicking
+const Pose SWIM[] = {P(0, -1, 1, -1, 2, L_DANGLE, R_OUT, 0), P(0, 0, 0, 0, 2, L_WIDE, R_BACK, 0),
+                     P(0, -1, 1, -1, 2, L_DANGLE, R_UP, 0), P(0, 0, 0, 0, 2, L_WIDE, R_DOWN, 0)};
 // dance
 const Pose BOB[] = {P(0, 0, 0, 0, 0, L_STAND, R_DOWN, 0), P(0, 1, 1, -1, 1, L_STAND, R_OUT, 0),
                     P(0, 0, 0, 0, 0, L_STAND, R_DOWN, 0), P(0, 1, 1, -1, -1, L_STAND, R_OUT, 0)};
@@ -119,6 +122,7 @@ const AnimDef ANIMS[ANIM_COUNT] = {
     A("dangle", DANGLE, 4),     A("point", POINT, 2),      A("kick", KICK, 8),
     A("headshake", HEADSHAKE, 8), A("scared", SCARED, 10), A("flinch", FLINCH, 8),
     A("listen", LISTEN, 2),     A("clap", CLAP, 6),        A("foottap", FOOTTAP, 4),
+    A("swim", SWIM, 6),
     A("bob", BOB, 4),           A("sidestep", SIDESTEP, 4), A("hop", HOP, 4),
     A("spin", SPIN, 4),         A("armwave", ARMWAVE, 4),  A("headbang", HEADBANG, 4),
     A("wiggle", WIGGLE, 4),     A("twirl", TWIRL, 4),      A("stomp", STOMP, 4),
@@ -279,6 +283,14 @@ void drawEgg(Ctx &c, const Genome &g, const Pose &p) {
         c.onBody(x, (int)cy + 4, S_HAIR);
       }
       break;
+    case EGG_WAVES:
+      for (int x = 0; x < c.box; x++) {
+        int wv = (int)lroundf(sinf((x - sh) * 0.9f));
+        c.onBody(x, (int)cy - 4 + wv, S_BELLY);
+        c.onBody(x, (int)cy + 2 + wv, S_BELLY);
+        c.onBody(x, (int)cy + 3 + wv, S_BELLY_DARK);
+      }
+      break;
     case EGG_HEARTS:
       for (int i = 0; i < 3; i++) {
         int hx = (int)(cx + sh) - 5 + i * 4, hy = (int)cy - 4 + (i % 2) * 6;
@@ -342,10 +354,21 @@ void drawCreature(Ctx &c, const Genome &g, Stage st, Build b, Demeanour d, const
   fi.ax[A_TAIL] = (int8_t)(bs.centreX(bs.bottom - H * 0.3f) - W / 2 + 1);
   fi.ay[A_TAIL] = (int8_t)(bs.bottom - H * 0.3f);
 
+  // ---- dorsal fin (aquatic, behind the body, poking up from the back of the head)
+  if (g.aquatic && !curl) {
+    float fh = grown ? (teenUp ? 6.0f : 5.0f) : 3.0f;
+    float x0 = hx - W * 0.32f, x1 = hx + W * 0.05f;  // the sprite faces +x, so -x is its back
+    for (int x = (int)x0; x <= (int)x1; x++) {
+      float t = (x - x0) / maxf(1, x1 - x0);    // 0 at the back edge, 1 at the front
+      float h = fh * (t < 0.35f ? t / 0.35f : (1 - t) / 0.65f + 0.15f);
+      for (int k = 0; k <= (int)h; k++) c.set(x, (int)bs.top + 2 - k, k > h - 2 ? S_BODY_DARK : S_BODY);
+    }
+  }
+
   // ---- tail (behind)
   if (g.tail != TAIL_NONE && !back) {
     float tx = fi.ax[A_TAIL], ty = fi.ay[A_TAIL];
-    int kind = grown ? g.tail : TAIL_STUB;
+    int kind = (grown || g.tail == TAIL_FISH) ? g.tail : TAIL_STUB;
     switch (kind) {
       case TAIL_STUB: c.fillCircle(tx - 1, ty, 2.2f, S_BODY_DARK); break;
       case TAIL_LONG:
@@ -367,6 +390,35 @@ void drawCreature(Ctx &c, const Genome &g, Stage st, Build b, Demeanour d, const
         c.fillCircle(tx - 3, ty - 2, teenUp ? 4.2f : 3.2f, S_HAIR);
         c.fillCircle(tx - 4, ty - 3, teenUp ? 2.0f : 1.4f, S_HAIR_LIGHT);
         break;
+      case TAIL_FISH: {
+        // a short stalk, then a forked fan with a notch in the middle
+        int len = teenUp ? 9 : (grown ? 7 : 5), stalk = len / 3;
+        for (int i = 0; i < len; i++) {
+          int x = (int)tx - 1 - i;
+          float spread = i < stalk ? 1.0f : 1.0f + (i - stalk) * 0.75f;
+          for (int k = -(int)spread; k <= (int)spread; k++) {
+            bool notch = i >= len - 2 && abs(k) < (int)spread - 1;
+            if (notch) continue;
+            c.set(x, (int)ty - 1 + k, (abs(k) + i) % 3 == 0 ? S_BODY_DARK : S_BODY);
+          }
+        }
+        break;
+      }
+    }
+  }
+
+  // ---- gill-fins (aquatic): three frilly spikes fanning out from each side of the head
+  if (!side && g.ears == EARS_FINS) {
+    float gy = bs.top + H * 0.3f, len = c.box >= 40 ? 4.0f : 3.0f;
+    for (int s = -1; s <= 1; s += 2) {
+      float gx = bs.centreX(gy) + s * (bs.rx - 2);
+      for (int k = -1; k <= 1; k++) {
+        float ang = k * 0.6f;  // up-out, out, down-out
+        for (int i = 0; i < (int)len + 3; i++) {
+          float x = gx + s * cosf(ang) * i, y = gy + sinf(ang) * i - (k == 0 ? 0 : 1);
+          c.set((int)x, (int)y, i >= 3 ? S_BLUSH : S_BODY_DARK);
+        }
+      }
     }
   }
 

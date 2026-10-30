@@ -100,6 +100,16 @@ constexpr float WALL_PX = 4.0f;  // border drawn round the room
 constexpr float PROP_FRICTION_G = 0.3f;
 constexpr float BOWL_PROP_FRICTION_G = 0.6f;  // round bowl: props stay put on its slopes up to ~37 degrees
 constexpr float POOP_HIT_V = 60.0f;
+// water (aquatic pets): falls are slow and floaty, swimming is free movement
+constexpr float WATER_GRAVITY = 0.35f;   // gravity scale on a sinking pet
+constexpr float WATER_DRAG = 2.5f;       // 1/s, on a sinking pet
+constexpr float WATER_PROP_DRAG = 6.0f;  // 1/s, props drift down slowly
+constexpr float SWIM_ACCEL = 3.0f;       // 1/s, how fast a swimmer reaches its speed
+constexpr float SWIM_ARRIVE_PX = 3.0f;
+constexpr float SWIM_SPEED_MUL = 1.4f;       // swimming speed = walking speed x this
+constexpr float SWIM_MAX_S = 20.0f;          // one swim trip at most this long
+constexpr float BUBBLE_MIN_S = 0.8f, BUBBLE_MAX_S = 2.5f;  // ambient bubbles from the floor
+constexpr float BUBBLE_RISE_MIN = 10.0f, BUBBLE_RISE_MAX = 18.0f;  // px/s
 
 // ---------------------------------------------------------------- life (game hours)
 constexpr float HUNGER_PER_H = 8.0f;

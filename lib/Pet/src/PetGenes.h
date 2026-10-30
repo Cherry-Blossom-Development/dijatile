@@ -27,8 +27,15 @@ constexpr Ramp BODY_RAMPS[] = {
     {0x6A8FB8, 0x9CC0E8, 0xD2E8FF},  // pastel blue
     {0x7A5236, 0xA87650, 0xD6A87C},  // cocoa
     {0x6E6E3A, 0x9C9C58, 0xCACA8A},  // olive
+    // sea tones, aquatic pets only
+    {0x0E7C86, 0x22B8C4, 0x86ECF0},  // aqua
+    {0x1A3A7A, 0x2E5EB8, 0x6E9AE8},  // deep sea
+    {0x2E8A6A, 0x5CC49A, 0xA6F0CC},  // seafoam
 };
-constexpr uint8_t BODY_WEIGHTS[] = {10, 10, 8, 8, 10, 9, 9, 9, 7, 7, 8, 5};
+// Land pets.
+constexpr uint8_t BODY_WEIGHTS[] = {10, 10, 8, 8, 10, 9, 9, 9, 7, 7, 8, 5, 0, 0, 0};
+// Aquatic pets: sea tones and the watery land ramps.
+constexpr uint8_t SEA_BODY_WEIGHTS[] = {8, 0, 2, 2, 8, 8, 0, 4, 4, 6, 0, 0, 10, 8, 9};
 constexpr int BODY_COUNT = sizeof(BODY_WEIGHTS);
 
 // Rare special palettes (about 4% of pets).
@@ -60,6 +67,9 @@ constexpr uint8_t BELLY_ALLOWED[BODY_COUNT] = {
     0b100110,  // pastel blue: white, pale pink, dark brown
     0b001101,  // cocoa: cream, pale pink, pale yellow
     0b001011,  // olive
+    0b001110,  // aqua: white, pale pink, pale yellow
+    0b011011,  // deep sea
+    0b001111,  // seafoam: cream, white, pale pink, pale yellow
 };
 
 enum Markings : uint8_t { MARK_NONE, MARK_SPOTS, MARK_STRIPES, MARK_PATCHES, MARK_MASK, MARK_SOCKS };
@@ -108,17 +118,25 @@ constexpr uint8_t HORN_SHAPE_WEIGHTS[] = {34, 33, 33};
 enum Hair : uint8_t { HAIR_NONE, HAIR_SHORT, HAIR_LONG, HAIR_TUFT, HAIR_MOHAWK };
 constexpr uint8_t HAIR_STYLE_WEIGHTS[] = {20, 26, 18, 20, 16};
 constexpr const char *HAIR_NAMES[] = {"none", "short", "long", "tuft", "mohawk"};
-enum Tail : uint8_t { TAIL_NONE, TAIL_STUB, TAIL_LONG, TAIL_CURLY, TAIL_FLUFFY };
-constexpr uint8_t TAIL_WEIGHTS[] = {18, 24, 22, 18, 18};
-constexpr const char *TAIL_NAMES[] = {"none", "stub", "long", "curly", "fluffy"};
-enum Ears : uint8_t { EARS_ROUND, EARS_POINTY, EARS_FLOPPY, EARS_NONE };
-constexpr uint8_t EARS_WEIGHTS[] = {30, 28, 22, 20};
-constexpr const char *EARS_NAMES[] = {"round", "pointy", "floppy", "none"};
+// TAIL_FISH and EARS_FINS (frilly gill-fins) are aquatic only.
+enum Tail : uint8_t { TAIL_NONE, TAIL_STUB, TAIL_LONG, TAIL_CURLY, TAIL_FLUFFY, TAIL_FISH };
+constexpr uint8_t TAIL_WEIGHTS[] = {18, 24, 22, 18, 18, 0};
+constexpr const char *TAIL_NAMES[] = {"none", "stub", "long", "curly", "fluffy", "fish"};
+constexpr int TAIL_COUNT = sizeof(TAIL_WEIGHTS);
+enum Ears : uint8_t { EARS_ROUND, EARS_POINTY, EARS_FLOPPY, EARS_NONE, EARS_FINS };
+constexpr uint8_t EARS_WEIGHTS[] = {30, 28, 22, 20, 0};
+constexpr const char *EARS_NAMES[] = {"round", "pointy", "floppy", "none", "fins"};
+constexpr int EARS_COUNT = sizeof(EARS_WEIGHTS);
+
+// ---- habitat: about one pet in five lives underwater
+constexpr float AQUATIC_CHANCE = 0.2f;
 
 // ---- egg
-enum EggPattern : uint8_t { EGG_PLAIN, EGG_SPOTS, EGG_STRIPES, EGG_ZIGZAG, EGG_SPECKLES, EGG_BANDS, EGG_HEARTS };
-constexpr uint8_t EGG_PATTERN_WEIGHTS[] = {14, 18, 16, 14, 16, 18, 4};
-constexpr const char *EGG_PATTERN_NAMES[] = {"plain", "spots", "stripes", "zigzag", "speckles", "bands", "hearts"};
+// EGG_WAVES is for aquatic eggs only.
+enum EggPattern : uint8_t { EGG_PLAIN, EGG_SPOTS, EGG_STRIPES, EGG_ZIGZAG, EGG_SPECKLES, EGG_BANDS, EGG_HEARTS, EGG_WAVES };
+constexpr uint8_t EGG_PATTERN_WEIGHTS[] = {14, 18, 16, 14, 16, 18, 4, 0};
+constexpr const char *EGG_PATTERN_NAMES[] = {"plain", "spots", "stripes", "zigzag", "speckles", "bands", "hearts", "waves"};
+constexpr int EGG_PATTERN_COUNT = sizeof(EGG_PATTERN_WEIGHTS);
 
 // ---- names: two or three syllables plus an optional ending
 constexpr const char *NAME_SYLLABLES[] = {"mo", "pi", "ku", "ta", "zu", "bo", "ri", "na", "lu", "fi",

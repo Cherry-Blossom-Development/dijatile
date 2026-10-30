@@ -39,7 +39,7 @@ class FloorSelector {
   bool lastFlip_ = false;
 };
 
-enum class BodyState : uint8_t { Grounded, Airborne, Clinging, Held, Landing };
+enum class BodyState : uint8_t { Grounded, Airborne, Clinging, Held, Landing, Swimming };
 const char *bodyStateName(BodyState s);
 
 struct Body {
@@ -57,6 +57,7 @@ struct Body {
   bool impactPending = false;    // hard landing to report
   float impactSpeed = 0;
   float ang = 90;                // bowl only: rim angle of the contact point, deg (90 = screen bottom)
+  float swimX = 0, swimY = 0, swimSpeed = 0;  // swimming: where to and how fast
 
   Vec2 pos() const { return {x, y}; }
   // Rotation for drawing: stands on its surface, or tumbles while airborne.
@@ -120,6 +121,15 @@ class World {
   // Along coordinate at a fraction 0..1 of the walkable range.
   float alongAt(float frac) const { return lo_ + (hi_ - lo_) * frac; }
 
+  // Water (aquatic pets): sinking is slow, props drift down, and the pet can
+  // swim. swimTo() lifts it off the floor (or redirects a swim); stopSwim()
+  // lets it sink back down. swimArrived() is true once it reached the target.
+  void setWater(bool w) { water_ = w; }
+  bool water() const { return water_; }
+  void swimTo(float x, float y, float speed);
+  void stopSwim();
+  bool swimArrived() const;
+
   void hold(float x, float y);
   void release(float vx, float vy);
   void setHalf(float half);
@@ -158,8 +168,12 @@ class World {
   void placeOnRim(Body &b);
   void landOnRim(Body &b, float angDeg, WorldEvents &ev);
   void fallOff(Body &b, Vec2 vel);
+  // Shared by both arenas.
+  void integrateFall(Body &b, Vec2 G, float dt);
+  void stepSwim(Body &b, Floor floor, float dt);
 
   Arena arena_;
+  bool water_ = false;
   float lo_ = WALL, hi_ = 120 - WALL, rimR_ = 60 - WALL;
   Body body_;
   Prop props_[MAX_PROPS];

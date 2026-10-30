@@ -55,6 +55,16 @@ Moving the tile matters too:
 - **On the round tile** the room is a round bowl that fills the screen, and the pet and its things (bowl, ball, food, poops) are drawn twice as big. The floor is the curved rim, so the pet always heads for the lowest point: tilt the tile and it walks or slides round the curve. A quick turn or a flip still throws it across. Menus and games appear as a square panel in the middle.
 - **While music plays**, shaking in time with the beat counts as maracas. It excites the pet instead of confusing it.
 
+## Aquatic pets
+
+About one egg in five holds an aquatic pet: the egg has wavy stripes, and the
+pet hatches with a fish tail, frilly gill-fins, a dorsal fin and sea colours.
+Its room is underwater, with sand, swaying seaweed and bubbles drifting up. It
+walks and eats on the bottom like any pet, and now and then swims off round the
+water before sinking back down. Falls in water are slow and soft, so a flip
+just lets it drift across. Children of an aquatic pet are usually aquatic too.
+To try one: `pet gene aquatic 1` on the console.
+
 ## Menu
 
 | Item | |

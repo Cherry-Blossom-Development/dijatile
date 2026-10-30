@@ -24,8 +24,31 @@ static uint8_t pickBelly(Rng &r, uint8_t body) {
   return n ? opts[r.below(n)] : 0;
 }
 
-// The draw order below is part of GENOME_VERSION 1. Append new genes at the
-// end so existing seeds keep their looks.
+// Aquatic pets always have a fish tail, gill-fins and (unless rare hearts) a
+// wavy egg, and a sea-tone body; land pets never have any of those. Run after
+// rolling or inheriting, so the features always match the habitat.
+static void applyHabitat(Genome &g, Rng &r) {
+  if (g.aquatic) {
+    g.tail = TAIL_FISH;
+    g.ears = EARS_FINS;
+    if (g.eggPattern != EGG_HEARTS) g.eggPattern = EGG_WAVES;
+    if (SEA_BODY_WEIGHTS[g.body % BODY_COUNT] == 0) {
+      g.body = pick(r, SEA_BODY_WEIGHTS);
+      g.belly = pickBelly(r, g.body);
+    }
+  } else {
+    if (g.tail == TAIL_FISH) g.tail = pick(r, TAIL_WEIGHTS);
+    if (g.ears == EARS_FINS) g.ears = pick(r, EARS_WEIGHTS);
+    if (g.eggPattern == EGG_WAVES) g.eggPattern = pick(r, EGG_PATTERN_WEIGHTS);
+    if (BODY_WEIGHTS[g.body % BODY_COUNT] == 0) {
+      g.body = pick(r, BODY_WEIGHTS);
+      g.belly = pickBelly(r, g.body);
+    }
+  }
+}
+
+// The draw order below is part of GENOME_VERSION. Append new genes at the
+// end so existing seeds keep their looks within a version.
 Genome decodeGenome(uint32_t seed) {
   Rng r(seed);
   Genome g;
@@ -68,6 +91,8 @@ Genome decodeGenome(uint32_t seed) {
   g.sleepy = r.unit();
   g.curious = r.unit();
   g.tough = r.unit();
+  g.aquatic = r.chance(AQUATIC_CHANCE);
+  applyHabitat(g, r);
   return g;
 }
 
@@ -105,6 +130,8 @@ Genome inheritGenome(const Genome &p, uint32_t newSeed) {
     *cf[i] = clampf(*pf[i] + r.range(-0.15f, 0.15f), 0, 1);
   }
   c.metabolism = clampf(p.metabolism + r.range(-0.1f, 0.1f), 0.7f, 1.3f);
+  if (copy()) c.aquatic = p.aquatic;
+  applyHabitat(c, r);
   return c;
 }
 
@@ -161,12 +188,13 @@ bool setGene(Genome &g, const char *name, float v) {
     uint8_t *p;
     int lo, hi;
   } bytes[] = {
-      {"egg", &g.eggPattern, 0, 6}, {"body", &g.body, 0, BODY_COUNT - 1},
+      {"egg", &g.eggPattern, 0, EGG_PATTERN_COUNT - 1}, {"body", &g.body, 0, BODY_COUNT - 1},
       {"belly", &g.belly, 0, BELLY_COUNT - 1}, {"markings", &g.markings, 0, 5},
       {"hairstart", &g.hairStart, 0, HAIR_COUNT - 1}, {"hairend", &g.hairEnd, 0, HAIR_COUNT - 1},
       {"eye", &g.eye, 0, 5}, {"horncolour", &g.hornColour, 0, 3}, {"special", &g.special, 0, 3},
       {"eyes", &g.eyes, 1, 3}, {"horns", &g.horns, 0, 3}, {"hornshape", &g.hornShape, 0, 2},
-      {"hair", &g.hair, 0, 4}, {"tail", &g.tail, 0, 4}, {"ears", &g.ears, 0, 3}, {"size", &g.size, 0, 2},
+      {"hair", &g.hair, 0, 4}, {"tail", &g.tail, 0, TAIL_COUNT - 1}, {"ears", &g.ears, 0, EARS_COUNT - 1},
+      {"size", &g.size, 0, 2},
   };
   for (auto &b : bytes) {
     if (strcmp(name, b.n) == 0) {
@@ -189,22 +217,29 @@ bool setGene(Genome &g, const char *name, float v) {
   if (strcmp(name, "curly") == 0) { g.curly = v != 0; return true; }
   if (strcmp(name, "claws") == 0) { g.claws = v != 0; return true; }
   if (strcmp(name, "blush") == 0) { g.blush = v != 0; return true; }
+  if (strcmp(name, "aquatic") == 0) {
+    g.aquatic = v != 0;
+    Rng r(g.seed ^ 0xA0A71Cu);
+    applyHabitat(g, r);
+    return true;
+  }
   return false;
 }
 
 void describeGenome(const Genome &g, void (*line)(const char *, void *), void *ctx) {
   char b[96];
-  snprintf(b, sizeof(b), "seed=%08lx version=%u rarity=%d", (unsigned long)g.seed, g.version, rarity(g));
+  snprintf(b, sizeof(b), "seed=%08lx version=%u rarity=%d %s", (unsigned long)g.seed, g.version, rarity(g),
+           g.aquatic ? "aquatic" : "land");
   line(b, ctx);
-  snprintf(b, sizeof(b), "egg=%s body=%u belly=%u markings=%s special=%u", EGG_PATTERN_NAMES[g.eggPattern % 7],
+  snprintf(b, sizeof(b), "egg=%s body=%u belly=%u markings=%s special=%u", EGG_PATTERN_NAMES[g.eggPattern % EGG_PATTERN_COUNT],
            g.body, g.belly, MARKINGS_NAMES[g.markings % 6], g.special);
   line(b, ctx);
   snprintf(b, sizeof(b), "hairstart=%u hairend=%u eye=%u horncolour=%u", g.hairStart, g.hairEnd, g.eye,
            g.hornColour);
   line(b, ctx);
   snprintf(b, sizeof(b), "eyes=%u horns=%u hornshape=%u hair=%s curly=%d tail=%s claws=%d ears=%s blush=%d",
-           g.eyes, g.horns, g.hornShape, HAIR_NAMES[g.hair % 5], g.curly, TAIL_NAMES[g.tail % 5], g.claws,
-           EARS_NAMES[g.ears % 4], g.blush);
+           g.eyes, g.horns, g.hornShape, HAIR_NAMES[g.hair % 5], g.curly, TAIL_NAMES[g.tail % TAIL_COUNT], g.claws,
+           EARS_NAMES[g.ears % EARS_COUNT], g.blush);
   line(b, ctx);
   snprintf(b, sizeof(b), "weight=%.2f metabolism=%.2f size=%u", g.weightSet, g.metabolism, g.size);
   line(b, ctx);

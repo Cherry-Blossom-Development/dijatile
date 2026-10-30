@@ -33,7 +33,7 @@ import tempfile
 ANIMS = [
     "idle", "walk", "run", "crawl", "climb", "tumble", "land", "sit", "sleep", "yawn", "eat", "play",
     "stumble", "shiver", "wave", "poop", "celebrate", "sadsit", "dangle", "point", "kick", "headshake",
-    "scared", "flinch", "listen", "clap", "foottap", "bob", "sidestep", "hop", "spin", "armwave",
+    "scared", "flinch", "listen", "clap", "foottap", "swim", "bob", "sidestep", "hop", "spin", "armwave",
     "headbang", "wiggle", "twirl", "stomp", "shimmy", "swing", "bigfinish", "sway", "eggidle",
     "eggwobble", "eggcrack",
 ]

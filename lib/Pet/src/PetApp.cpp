@@ -395,6 +395,7 @@ void PetApp::tick() {
 
   if (touchDown_ && touchForPet_) brain_.touchHeld(touchX_, touchY_, now - touchDownMs_);
   updateMusic();
+  core_.world.setWater(core_.genome.aquatic);
   brain_.tick(dt);
   WorldEvents we =
       core_.world.step(dt, Vec2(m.fx, m.fy), core_.floorSel.floor(), brain_.asleep(), brain_.canCling());

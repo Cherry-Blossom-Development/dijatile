@@ -35,6 +35,7 @@ enum Slot : uint8_t {
 enum class Anim : uint8_t {
   Idle, Walk, Run, Crawl, Climb, Tumble, Land, Sit, Sleep, Yawn, Eat, Play, Stumble, Shiver, Wave,
   Poop, Celebrate, SadSit, Dangle, Point, Kick, HeadShake, Scared, Flinch, Listen, Clap, FootTap,
+  Swim,  // aquatic pets, in open water
   // dance moves, authored in beats (frames spread over the move's beats)
   Bob, SideStep, Hop, Spin, ArmWave, HeadBang, Wiggle, Twirl, Stomp, Shimmy, Swing, BigFinish, Sway,
   // egg

@@ -346,6 +346,83 @@ void test_bowl_double_size_pet() {
   TEST_ASSERT_EQUAL((int)Floor::East, (int)w.body().surface);
 }
 
+// ---- water (aquatic pets)
+
+void test_aquatic_genes() {
+  const int N = 3000;
+  int aquatic = 0;
+  for (uint32_t seed = 1; seed <= (uint32_t)N; seed++) {
+    Genome g = decodeGenome(seed * 2654435761u);
+    if (g.aquatic) {
+      aquatic++;
+      TEST_ASSERT_EQUAL(genes::TAIL_FISH, g.tail);
+      TEST_ASSERT_EQUAL(genes::EARS_FINS, g.ears);
+      TEST_ASSERT_TRUE(g.eggPattern == genes::EGG_WAVES || g.eggPattern == genes::EGG_HEARTS);
+      TEST_ASSERT_TRUE(genes::SEA_BODY_WEIGHTS[g.body] > 0);
+    } else {
+      TEST_ASSERT_TRUE(g.tail != genes::TAIL_FISH && g.ears != genes::EARS_FINS && g.eggPattern != genes::EGG_WAVES);
+      TEST_ASSERT_TRUE(genes::BODY_WEIGHTS[g.body] > 0);
+    }
+  }
+  TEST_ASSERT_INT_WITHIN(N / 20, N / 5, aquatic);  // about one in five
+  // inheritance keeps the features matching the habitat
+  int kept = 0;
+  Genome parent = decodeGenome(7);
+  setGene(parent, "aquatic", 1);
+  TEST_ASSERT_EQUAL(genes::TAIL_FISH, parent.tail);
+  for (uint32_t i = 1; i <= 400; i++) {
+    Genome c = inheritGenome(parent, i * 7919u);
+    kept += c.aquatic;
+    if (!c.aquatic) TEST_ASSERT_TRUE(c.tail != genes::TAIL_FISH && genes::BODY_WEIGHTS[c.body] > 0);
+    else TEST_ASSERT_EQUAL(genes::EARS_FINS, c.ears);
+  }
+  TEST_ASSERT_TRUE(kept > 200 && kept < 320);  // 60 % copy + 20 % of re-rolls = about 68 %
+}
+
+void test_water_swim_and_sink() {
+  for (int round = 0; round < 2; round++) {
+    World w;
+    Arena a;
+    a.round = round == 1;
+    a.size = round ? 206 : 120;
+    w.setArena(a);
+    w.reset(20);
+    w.setWater(true);
+    const float tx = w.mid() + 10, ty = w.mid() - 20;
+    w.swimTo(tx, ty, 25);
+    TEST_ASSERT_EQUAL((int)BodyState::Swimming, (int)w.body().state);
+    bool arrived = false;
+    for (int i = 0; i < 500 && !arrived; i++) {
+      w.step(0.02f, Vec2(0, 1), Floor::South, false, true);
+      arrived = w.swimArrived();
+    }
+    TEST_ASSERT_TRUE(arrived);
+    // stop swimming: it sinks slowly and lands softly, no "oof"
+    w.stopSwim();
+    float vmax = 0;
+    bool landed = false, hard = false;
+    for (int i = 0; i < 600 && !landed; i++) {
+      WorldEvents ev = w.step(0.02f, Vec2(0, 1), Floor::South, false, true);
+      landed = ev.reachedFloor;
+      hard |= ev.hardLanding;
+      vmax = maxf(vmax, sqrtf(w.body().vx * w.body().vx + w.body().vy * w.body().vy));
+    }
+    TEST_ASSERT_TRUE(landed);
+    TEST_ASSERT_FALSE(hard);
+    TEST_ASSERT_TRUE(vmax < 70);
+    // a flip in water: drifts across and lands softly too
+    w.floorChanged(Floor::South, Floor::North, false, true);
+    hard = landed = false;
+    for (int i = 0; i < 800 && !landed; i++) {
+      WorldEvents ev = w.step(0.02f, Vec2(0, -1), Floor::North, false, true);
+      landed = ev.reachedFloor;
+      hard |= ev.hardLanding;
+    }
+    TEST_ASSERT_TRUE(landed);
+    TEST_ASSERT_FALSE(hard);
+  }
+}
+
 void test_physics_tilt_drift_and_props_slide() {
   World w;
   w.reset(16);
@@ -618,6 +695,27 @@ void test_food_goes_in_the_bowl_and_the_pet_walks_over() {
   TEST_ASSERT_TRUE(app.core().life.hunger > 70);  // 40 + a 40 meal, minus a little decay
   // it ate beside the bowl, not across the room
   TEST_ASSERT_TRUE(closest < app.core().world.body().half + bowl->half + 4);
+}
+
+void test_an_aquatic_pet_swims() {
+  static FakeHost host;
+  static PetApp app;
+  host.seed = 21;
+  app.begin(&host);
+  app.onResume();
+  app.command("pet gene aquatic 1");
+  app.command("pet stage adult");
+  app.command("pet gene playful 1");
+  TEST_ASSERT_TRUE(app.core().genome.aquatic);
+  bool swam = false, bubbles = false;
+  for (int i = 0; i < 600 && !swam; i++) {  // up to 90 s
+    runApp(app, host, 150);
+    swam = app.core().world.body().state == BodyState::Swimming;
+    for (const Particle &p : app.core().particles) bubbles |= p.on && p.kind == PK_BUBBLE;
+  }
+  TEST_ASSERT_TRUE(swam);
+  TEST_ASSERT_TRUE(bubbles);
+  TEST_ASSERT_TRUE(app.core().world.water());
 }
 
 void test_a_hungry_pet_says_so() {
@@ -945,6 +1043,8 @@ int main(int, char **) {
   RUN_TEST(test_bowl_flip_drops_the_pet_across);
   RUN_TEST(test_bowl_props_stay_in_and_settle);
   RUN_TEST(test_bowl_double_size_pet);
+  RUN_TEST(test_aquatic_genes);
+  RUN_TEST(test_water_swim_and_sink);
   RUN_TEST(test_stats_decay_and_catchup_cap);
   RUN_TEST(test_life_stages_and_demeanour);
   RUN_TEST(test_life_end_of_life_modes);
@@ -953,6 +1053,7 @@ int main(int, char **) {
   RUN_TEST(test_power_cycle_restores_and_backup_fallback);
   RUN_TEST(test_food_goes_in_the_bowl_and_the_pet_walks_over);
   RUN_TEST(test_a_hungry_pet_says_so);
+  RUN_TEST(test_an_aquatic_pet_swims);
   RUN_TEST(test_genome_deterministic);
   RUN_TEST(test_genome_distribution_matches_weights);
   RUN_TEST(test_genome_inheritance);

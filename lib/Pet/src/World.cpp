@@ -66,6 +66,7 @@ const char *bodyStateName(BodyState s) {
     case BodyState::Clinging: return "Clinging";
     case BodyState::Held: return "Held";
     case BodyState::Landing: return "Landing";
+    case BodyState::Swimming: return "Swimming";
     default: return "Grounded";
   }
 }
@@ -73,7 +74,7 @@ const char *bodyStateName(BodyState s) {
 uint8_t Body::rot() const {
   uint8_t r = floorRot(surface);
   if (state == BodyState::Airborne) r = (r + (int)airSpin) & 3;
-  return r;
+  return r;  // swimming: upright for the current floor (set every step)
 }
 
 // ============================================================ World
@@ -159,6 +160,75 @@ void World::reset(float half) {
   body_.x = p.x;
   body_.y = p.y;
   for (Prop &p : props_) p = Prop();
+}
+
+void World::swimTo(float x, float y, float speed) {
+  Body &b = body_;
+  if (b.state == BodyState::Held) return;
+  clampToBox(x, y, b.half + 2);
+  b.swimX = x;
+  b.swimY = y;
+  b.swimSpeed = speed;
+  if (b.state != BodyState::Swimming) {
+    b.state = BodyState::Swimming;
+    b.vx = b.vy = 0;
+    b.sliding = false;
+    b.slide = 0;
+    b.impactPending = false;
+  }
+}
+
+void World::stopSwim() {
+  Body &b = body_;
+  if (b.state != BodyState::Swimming) return;
+  b.state = BodyState::Airborne;  // sinks (slowly, in water)
+  b.impactPending = false;
+  b.airSpin = 0;
+}
+
+bool World::swimArrived() const {
+  const Body &b = body_;
+  float dx = b.swimX - b.x, dy = b.swimY - b.y;
+  return b.state == BodyState::Swimming && dx * dx + dy * dy < tune::SWIM_ARRIVE_PX * tune::SWIM_ARRIVE_PX;
+}
+
+void World::integrateFall(Body &b, Vec2 G, float dt) {
+  using namespace tune;
+  const float gs = water_ ? WATER_GRAVITY : 1.0f;
+  b.vx += G.x * G_SCALE_PX_S2 * gs * dt;
+  b.vy += G.y * G_SCALE_PX_S2 * gs * dt;
+  if (water_) {
+    float k = expf(-WATER_DRAG * dt);
+    b.vx *= k;
+    b.vy *= k;
+  }
+  float s = sqrtf(b.vx * b.vx + b.vy * b.vy);
+  if (s > TERMINAL_V) {
+    b.vx *= TERMINAL_V / s;
+    b.vy *= TERMINAL_V / s;
+  }
+  b.x += b.vx * dt;
+  b.y += b.vy * dt;
+  // tumbling: a sinking swimmer doesn't spin
+  if (!water_) b.airSpin += dt * 5.0f * minf(1.0f, s / 80.0f);
+  if (b.airSpin >= 4) b.airSpin -= 4;
+}
+
+void World::stepSwim(Body &b, Floor floor, float dt) {
+  using namespace tune;
+  b.surface = floor;  // upright for whichever way is down now
+  float dx = b.swimX - b.x, dy = b.swimY - b.y, d = sqrtf(dx * dx + dy * dy);
+  float want = d > 0.01f ? minf(b.swimSpeed, d * 2.0f) : 0;  // ease in to the target
+  float tx = d > 0.01f ? dx / d * want : 0, ty = d > 0.01f ? dy / d * want : 0;
+  float k = minf(1.0f, SWIM_ACCEL * dt);
+  b.vx += (tx - b.vx) * k;
+  b.vy += (ty - b.vy) * k;
+  b.x += b.vx * dt;
+  b.y += b.vy * dt;
+  clampToBox(b.x, b.y, b.half);
+  Vec2 r = floorRight(floor);
+  float side = b.vx * r.x + b.vy * r.y;
+  if (fabsf(side) > 2) b.facing = (int8_t)(side > 0 ? 1 : -1);
 }
 
 float World::bodyAlong() const {
@@ -309,6 +379,10 @@ void World::stepBody(float dt, Vec2 gRaw, Floor floor, bool asleep, bool grip, W
     case BodyState::Held:
       return;
 
+    case BodyState::Swimming:
+      stepSwim(b, floor, dt);
+      return;
+
     case BodyState::Landing:
       b.landTimer -= dt;
       if (b.landTimer <= 0) b.state = BodyState::Grounded;
@@ -400,17 +474,9 @@ void World::stepBody(float dt, Vec2 gRaw, Floor floor, bool asleep, bool grip, W
     }
 
     case BodyState::Airborne: {
-      b.vx += G.x * G_SCALE_PX_S2 * dt;
-      b.vy += G.y * G_SCALE_PX_S2 * dt;
-      float s = sqrtf(b.vx * b.vx + b.vy * b.vy);
-      if (s > TERMINAL_V) {
-        b.vx *= TERMINAL_V / s;
-        b.vy *= TERMINAL_V / s;
-      }
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
-      b.airSpin += dt * (asleep ? 2.5f : 5.0f) * minf(1.0f, s / 80.0f);
-      if (b.airSpin >= 4) b.airSpin -= 4;
+      integrateFall(b, G, dt);
+      if (asleep && !water_) b.airSpin -= dt * 2.5f * minf(1.0f, sqrtf(b.vx * b.vx + b.vy * b.vy) / 80.0f);
+      if (b.airSpin < 0) b.airSpin += 4;
 
       float lo = lo_ + b.half, hi = hi_ - b.half;
       struct Hit {
@@ -469,6 +535,11 @@ void World::stepProp(Prop &p, float dt, Vec2 gRaw, Floor floor, WorldEvents &ev)
   Vec2 G = gravity(gRaw, floor);
   p.vx += G.x * G_SCALE_PX_S2 * dt;
   p.vy += G.y * G_SCALE_PX_S2 * dt;
+  if (water_) {
+    float k = expf(-WATER_PROP_DRAG * dt);
+    p.vx *= k;
+    p.vy *= k;
+  }
 
   float lo = lo_ + p.half, hi = hi_ - p.half;
   p.resting = false;
@@ -563,6 +634,10 @@ void World::stepBodyRound(float dt, Vec2 gRaw, Floor floor, bool asleep, bool gr
     case BodyState::Held:
       return;
 
+    case BodyState::Swimming:
+      stepSwim(b, floor, dt);
+      return;
+
     case BodyState::Landing:
       b.landTimer -= dt;
       if (b.landTimer <= 0) b.state = BodyState::Grounded;
@@ -625,17 +700,9 @@ void World::stepBodyRound(float dt, Vec2 gRaw, Floor floor, bool asleep, bool gr
     }
 
     case BodyState::Airborne: {
-      b.vx += G.x * G_SCALE_PX_S2 * dt;
-      b.vy += G.y * G_SCALE_PX_S2 * dt;
-      float s = sqrtf(b.vx * b.vx + b.vy * b.vy);
-      if (s > TERMINAL_V) {
-        b.vx *= TERMINAL_V / s;
-        b.vy *= TERMINAL_V / s;
-      }
-      b.x += b.vx * dt;
-      b.y += b.vy * dt;
-      b.airSpin += dt * (asleep ? 2.5f : 5.0f) * minf(1.0f, s / 80.0f);
-      if (b.airSpin >= 4) b.airSpin -= 4;
+      integrateFall(b, G, dt);
+      if (asleep && !water_) b.airSpin -= dt * 2.5f * minf(1.0f, sqrtf(b.vx * b.vx + b.vy * b.vy) / 80.0f);
+      if (b.airSpin < 0) b.airSpin += 4;
 
       float dx = b.x - mid(), dy = b.y - mid(), d = sqrtf(dx * dx + dy * dy);
       float lim = rimR_ - b.half;
@@ -670,6 +737,11 @@ void World::stepPropRound(Prop &p, float dt, Vec2 gRaw, Floor floor, WorldEvents
   Vec2 G = gravity(gRaw, floor);
   p.vx += G.x * G_SCALE_PX_S2 * dt;
   p.vy += G.y * G_SCALE_PX_S2 * dt;
+  if (water_) {
+    float k = expf(-WATER_PROP_DRAG * dt);
+    p.vx *= k;
+    p.vy *= k;
+  }
 
   const float lim = rimR_ - p.half;
   float dx = p.x - mid(), dy = p.y - mid(), d = sqrtf(dx * dx + dy * dy);

@@ -46,6 +46,8 @@ These are settled. Use the existing Dijatile codebase for all of them.
 
 A small pixel-art creature lives inside the square screen. The screen is a box, and **real gravity from the IMU is the box's gravity**. Tilt the tile and the pet walks, slides or crawls to the new "bottom". Flip it and the pet tumbles. Shake it and the pet gets dizzy and confused. Lay it flat and leave it, and the pet gets drowsy and falls asleep. Pick it up and it wakes.
 
+About one pet in five is **aquatic** (§6.7): it lives underwater, swims around the room as well as walking on the bottom, and has fins and sea colours.
+
 The pet hatches from an egg, grows through life stages, and needs feeding, play, cleaning, sleep and the occasional medicine. Its care history shapes how it grows up. A small menu (3 buttons + touch) gives access to care actions, mini-games, an MP3 player that plays music from the SD card (the pet dances along automatically), a "Listen & dance" mode where the pet dances to music it hears through the microphones, status, and settings.
 
 ---
@@ -286,6 +288,15 @@ The pet says what's on its mind in a speech bubble, with a matching babble (`Bra
 - **Otherwise, every `CHAT_IDLE_MIN_S`–`CHAT_IDLE_MAX_S` (25–45 s):** Hunger < 50: "SNACK TIME?", "I COULD EAT..."; Happy > 75: "I LOVE YOU!", "LA LA LA!", "THIS IS FUN!", "YAY!" (happy); else 30 % "I'M <NAME>!", or "HMM...", "WHAT'S UP?", "HELLO!", "BORED...".
 - Each line shows for `CHAT_SAY_S` (2.8 s). Other speech (reactions, refusals) still happens as before and holds the chatter off while it shows.
 
+### 6.7 Aquatic pets
+
+A genome trait (`Genome::aquatic`, §10.6.2) decides it at conception. An aquatic pet's room is underwater (§8.7), and it behaves like any other pet on the bottom (walks, sits, eats from the bowl, sleeps, dances), plus:
+
+- **Swimming:** an idle choice with weight `2.5 + 2 × playful` (not when cranky; eggs never choose). It swims to 2–4 random points in the open water (`Brain::nextSwimPoint`: uniform in the disc of radius `R − half − 6` on the round tile, the box inset by `half + 4` on the square one) at `walk speed × SWIM_SPEED_MUL` (1.4), for at most `SWIM_MAX_S` (20 s), then stops and sinks back to the bottom. Any other activity (eating, sleeping, a need, a game) ends the swim and the pet sinks first.
+- **Bubbles:** every `BUBBLE_MIN_S`–`BUBBLE_MAX_S` (0.8–2.5 s) a bubble (sometimes a string of three) rises from a random spot on the floor; a swimming pet lets one out every 1–2.5 s and a sleeping one every 2.5–4 s, from its head. Bubbles rise against gravity at 10–18 px/s, wobbling side to side, and vanish after crossing the room.
+- **The "bug" is a fish:** the chase-a-bug idle chases a little orange fish instead.
+- **Animation:** `swim` while swimming and while drifting down (an aquatic pet doesn't tumble); asleep it sinks curled up.
+
 ---
 
 ## 7. Graphics
@@ -320,12 +331,13 @@ The authoritative list is the `Anim` enum in `lib/Pet/src/Art.h`; `tools/sprites
 
 Body (drawn for each **build**: slim / normal / chubby): `idle, walk, run, crawl, climb, tumble, land, sit, sleep, yawn, eat, play, stumble, shiver, wave, poop, celebrate, sadsit, dangle (picked up), point (at a need), kick, headshake (refusing), scared, flinch (poked), listen (cupped ear), clap, foottap`. Blinking is part of the live face, not a body animation.
 Dance moves (§9.4, authored in beats): `bob, sidestep, hop, spin, armwave, headbang, wiggle, twirl, stomp, shimmy, swing, bigfinish, sway`.
+Aquatic: `swim` (leaning into the stroke, arms paddling, legs kicking).
 Egg: `eggidle, eggwobble, eggcrack`.
 Each body frame carries anchor points: `head, eyes, mouth, tail, hand_l, hand_r, foot_l, foot_r`.
-Feature overlays (drawn per stage, positioned by anchors, with a few frames only where they move — e.g. tail wag, hair bounce): eyes ×1/2/3, horn sets, hair styles, tails, claws (hands/feet), ears, markings masks (§10.6.2).
+Feature overlays (drawn per stage, positioned by anchors, with a few frames only where they move — e.g. tail wag, hair bounce): eyes ×1/2/3, horn sets, hair styles, tails, claws (hands/feet), ears, markings masks (§10.6.2). Aquatic only: a forked **fish tail** (short stalk, then a fan with a notch; from hatch, longer at child and teen), **gill-fins** in place of ears (three frilly spikes fanning out from each side of the head, dark at the root and blush-pink at the tips), and a **dorsal fin** rising from the back of the head (small at baby, full from child).
 Eggs: one egg shape plus pattern masks (§10.6.2), crack frames.
 Expression overlays: as listed in §6.1, drawn so they work with 1, 2 or 3 eyes.
-Props: food bowl, meal, snack, poop (2 frames), medicine, ball, music notes, Zzz, stars, ?, !, hearts, sweat, steam, egg crack frames, gravestone/star for end of life (§10.3), background tiles (floor/walls for each of the 4 sides of the square room; rim tiles, wall and window for the round room, §8.6).
+Props: food bowl, meal, snack, poop (2 frames), medicine, ball, music notes, Zzz, stars, ?, !, hearts, sweat, steam, egg crack frames, gravestone/star for end of life (§10.3), background tiles (floor/walls for each of the 4 sides of the square room; rim tiles, wall and window for the round room, §8.6); underwater (§8.7): water bands, sand, seaweed, a rock, bubbles, a little fish.
 Frame counts: 2–6 frames per animation, 6–12 fps.
 
 ---
@@ -401,6 +413,23 @@ Geometry: centre `(mid, mid)` with `mid = 103`, rim inner radius `R = mid − WA
 - Inside is the wall colour with vertical stripes and the window, both turned with `floorRot(floor)` so the window is always "up", 0.72 R above the centre. No crossfade on floor changes.
 - Lights out, night and dark palettes as on the square room. The beat overlay flashes a circle round the edge instead of a square.
 - For speed, the per-row half-widths of the ring and a one-bit-per-pixel tile pattern are computed once per canvas size (about 6 KB).
+
+### 8.7 Water (aquatic pets)
+
+`World::setWater()` (set every tick from the genome) switches the room's physics and look.
+
+**Physics:**
+- **Swimming** is a body state: `swimTo(x, y, speed)` lifts the pet off the floor (or redirects it); it steers toward the target, accelerating at `SWIM_ACCEL` (3/s) toward `speed` and easing in over the last few pixels, clamped inside the box or disc. Gravity doesn't act on a swimmer. It is drawn upright for the current floor and faces the way it is moving. `swimArrived()` is true within `SWIM_ARRIVE_PX` (3 px); `stopSwim()` turns it into a falling (sinking) body.
+- **Falling in water** (after a swim, a flip, a fast turn, being dropped): gravity × `WATER_GRAVITY` (0.35) and drag `WATER_DRAG` (2.5/s), so it drifts down at under 60 px/s and never makes a hard landing; it doesn't spin.
+- Floor changes don't affect a swimmer. On the bottom everything is as on land (walking, gripping, clinging, the bowl's slopes).
+- **Props** get drag `WATER_PROP_DRAG` (6/s), so they drift down slowly.
+
+**Drawing** (`Scene::drawWaterRoom`, `drawRoundWaterRoom`), all turned with `floorRot(floor)` so the surface is always "up":
+- **Water** in six bands from light at the surface to deep at the bottom (day, night and lights-out palettes), with dithered seams. On the round tile the band comes from each pixel's depth along "down".
+- **A shimmering surface line** near the top (a moving sine wave).
+- **Sand** for the floor: the bottom strip of the square room, the whole rim ring of the round one (beat-pulsed like the floor).
+- **Four swaying seaweed strands** and a rock along the bottom (on the round tile rooted on the rim either side of the bottom).
+- No window, wall stripes or crossfade.
 
 ---
 
@@ -592,7 +621,7 @@ Setting **Life mode** (default **Gentle**):
 
 - Save the pet state (genome, stats, stage, age, care counters, demeanour, settings, timestamps, lineage, memorial) as one struct (`SaveData.h`: magic, `version`, size, a sequence number, CRC32) to **NVS** (namespace `tilepet`, key `save`). Write on any change, debounced to at most once per 60 s, and at once on stage change, before the system sleeps, when the app closes, and when PWR has been held 1.5 s (likely power-off).
 - Mirror it to `/pet/save.bin` on SD when a card is mounted (written to `/pet/save.tmp`, then renamed). On load, the valid copy with the higher sequence number wins.
-- **No migrations** (project rule: tiles are reflashed together). A save whose version, size or genome version differs is invalid. An invalid or corrupt NVS save falls back to the SD copy, then to a new egg (never crash).
+- **No migrations** (project rule: tiles are reflashed together). A save whose version, size or genome version differs is invalid (`GENOME_VERSION` 2 added aquatic pets, so older pets restarted as eggs). An invalid or corrupt NVS save falls back to the SD copy, then to a new egg (never crash).
 - Saves are written from the game thread.
 
 ### 10.6 Genome: traits fixed at conception
@@ -611,7 +640,7 @@ Every pet is unique. When an egg is created, a **genome** is rolled and saved. I
 
 | Gene | Values |
 |---|---|
-| Egg pattern | plain, spots, stripes, zigzag, speckles, bands, hearts (rare) |
+| Egg pattern | plain, spots, stripes, zigzag, speckles, bands, hearts (rare); **waves** (aquatic only) |
 | Egg colours | base and pattern colours taken from the pet's own body and hair ramps, so the egg previews the pet's colouring |
 | Egg wobble | slow / normal / jittery, from the personality's speed |
 
@@ -619,7 +648,7 @@ Every pet is unique. When an egg is created, a **genome** is rolled and saved. I
 
 | Gene | Notes |
 |---|---|
-| Body colour | From ~12 curated ramps (warm, cool, pastel, earthy) + rare specials. |
+| Body colour | Land: 12 curated ramps (warm, cool, pastel, earthy) + rare specials. Aquatic: sea tones (`SEA_BODY_WEIGHTS`): aqua, deep sea and seafoam (aquatic only) plus coral, sky, teal, lavender, the pastels and a little sunflower and raspberry. |
 | Belly / markings colour | Chosen from ramps that contrast with the body (table of allowed pairs so nothing looks muddy). |
 | Markings pattern | none, spots, stripes, patches, mask around the eyes, socks (feet). Implemented as mask overlays tinted with the markings ramp. |
 | Hair colour **path** | Hair colour per stage: baby colour → adult colour (e.g. blond → brown, or stays), then elder greying/whitening. Genome picks the start and end ramps; stages interpolate. |
@@ -633,9 +662,10 @@ Every pet is unique. When an egg is created, a **genome** is rolled and saved. I
 | Eyes | 1 (8%), 2 (88%), 3 (4%) | Hatch |
 | Horns | none (45%), 1 (25%), 2 (26%), 3 (4%); shape: nub / curved / straight | Nubs at child, full size at teen |
 | Hair | none, short, long, tuft, mohawk; plus curly/straight | Fuzz at baby, full style at child, longer at teen |
-| Tail | none, short stub, long, curly, fluffy | Hatch (stub), full at child |
+| Tail | none, short stub, long, curly, fluffy; **fish** (aquatic only) | Hatch (stub; fish tail small), full at child |
 | Claws | yes / no (hands and feet) | Teen |
-| Ears | round, pointy, floppy, none | Hatch |
+| Ears | round, pointy, floppy, none; **gill-fins** (aquatic only) | Hatch |
+| **Habitat** | land (80 %) / **aquatic** (20 %, `AQUATIC_CHANCE`), rolled last | Conception |
 | Cheek blush | yes / no | Hatch |
 
 **Build and body:**
@@ -645,6 +675,8 @@ Every pet is unique. When an egg is created, a **genome** is rolled and saved. I
 | Weight set point | Skinny → chubby (continuous 0..1). Picks the default **build** sprite (slim / normal / chubby) and the weight the pet drifts back toward. |
 | Metabolism | How fast weight changes with food and play (±30%). |
 | Size | Small / medium / large: ±4 logical px on the adult sprite box via a per-build scale or alternate sprites; also sets voice pitch. Keep within the 48×48 box. |
+
+**Habitat rule** (`applyHabitat`, run after decoding and after inheriting, and by `pet gene aquatic`): an aquatic pet always has the fish tail, gill-fins, the waves egg (unless it rolled the rare hearts) and a sea-tone body (re-rolled with its belly if needed); a land pet never has any aquatic-only value (re-rolled from the land tables if inherited). Aquatic pets also always get the dorsal fin. Inheritance copies the habitat with the usual 60 % chance, so about 68 % of an aquatic pet's children are aquatic.
 
 Actual weight in game moves the build up or down one step from the set point (overfed slim pet → normal; a chubby pet that plays a lot → normal). Thresholds in the tuning header.
 
@@ -779,6 +811,7 @@ Host unit tests (`test/test_pet`, Unity, `pio test -e native -f test_pet`) cover
 - the motion classifier on synthetic IMU traces: flat-still, face down, upright, pick-up, a tap that isn't a pick-up, shake vs. gentle handling, free fall, spin;
 - floor selection hysteresis and the fast-turn flag; clinging, climbing and falling; tilt drift and sliding props;
 - the round bowl: along/rim-angle round trip, following a slow turn, a sleeper sliding round, a flip, props staying in and settling, the double-size pet;
+- aquatic pets: about one in five, features always matching the habitat, inheritance; swimming to a point, sinking slowly and landing softly in both arenas, a soft flip; the whole app: an aquatic pet swims and bubbles rise;
 - stat decay and the catch-up cap, stages and demeanour, both end-of-life modes, poop and feeding;
 - save CRC and versioning, and power-cycle restore with fallback to the SD copy;
 - the whole app: feeding puts the meal in the bowl and the pet walks over and eats beside it; a hungry pet says so on its own;
@@ -803,6 +836,7 @@ All in one header, `lib/Pet/src/PetTuning.h` (namespace `pet::tune`). The header
 
 Motion: `GRAV_LP_TAU_S, GRAV_INNOVATION_G, FAST_GRAV_TAU_S, FLAT_TILT_DEG, FLAT_STILL_RMS_G, FLAT_STILL_GYRO_DPS, FLAT_HOLD_S, FACEDOWN_DEG, UPRIGHT_DEG, PICKUP_RMS_G, SHAKE_RMS_G, SHAKE_REVERSAL_G, SHAKE_REVERSALS, SPIN_DPS, FREEFALL_G, FREEFALL_MS, TAP_JERK_G`
 Sleep: `DROWSY_AFTER_S, SLEEP_AFTER_S, FACEDOWN_SLEEP_S, MIN_NAP_S, CRANKY_S`
+Water: `WATER_GRAVITY, WATER_DRAG, WATER_PROP_DRAG, SWIM_ACCEL, SWIM_ARRIVE_PX, SWIM_SPEED_MUL, SWIM_MAX_S, BUBBLE_MIN_S, BUBBLE_MAX_S, BUBBLE_RISE_MIN, BUBBLE_RISE_MAX` (`AQUATIC_CHANCE` is in `PetGenes.h`)
 Physics: `G_SCALE_PX_S2, TERMINAL_V, RESTITUTION, SLIDE_G, TUMBLE_G, PROP_FRICTION_G, BOWL_PROP_FRICTION_G, FLOOR_SWITCH_G, FLOOR_SWITCH_DEG, FLOOR_SWITCH_MS, FAST_ROTATE_DEG, FAST_ROTATE_MS, HARD_LANDING_V`
 Life: stat rates per hour, `FULL_HUNGER`, stage durations, poop interval, sickness chances, catch-up cap, attention threshold
 Display: `PIXEL_SCALE, LOGICAL_W, LOGICAL_H, FPS_ACTIVE, FPS_IDLE, DIM_AFTER_S`

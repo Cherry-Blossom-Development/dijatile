@@ -14,6 +14,7 @@ enum class Act : uint8_t {
   PointBowl, LookPoop, Shiver, Eating, Pooping, Sleeping, Yawning, Celebrate, Refusing,
   Flinch, Tickled, Annoyed, BackAway, Approach, Nauseous, Scared, Medicine, Listening, Dancing,
   GoEat,  // walking to the bowl to eat what's in it
+  Swim,   // aquatic: swimming round the water
   Count
 };
 const char *actName(Act a);
@@ -111,6 +112,9 @@ class Brain {
   void updateParticles(float dt);
   void updateBug(float dt);
   void updateChatter(float dt);
+  void updateBubbles(float dt);
+  void startSwim();
+  void nextSwimPoint();
   void goEat();
   void startEating();
   Vec2 up() const;
@@ -130,6 +134,8 @@ class Brain {
   Anim lastAnim_ = Anim::Idle;
   bool pendingMeal_ = false, pendingSnack_ = false;  // food in the bowl, not eaten yet
   float chatT_ = 8;  // until the pet next says something on its own
+  int swimLegs_ = 0;           // waypoints left in this swim
+  float bubbleT_ = 1, petBubbleT_ = 1;
 
   // sleep
   bool asleep_ = false;

@@ -9,7 +9,7 @@
 
 namespace pet {
 
-constexpr uint8_t GENOME_VERSION = 1;
+constexpr uint8_t GENOME_VERSION = 2;  // 2: aquatic pets
 
 struct Genome {
   uint32_t seed = 0;
@@ -28,6 +28,7 @@ struct Genome {
   bool claws = false;
   uint8_t ears = 0;
   bool blush = false;
+  bool aquatic = false;  // lives underwater: swims, fish tail, gill-fins, sea colours
   // build
   float weightSet = 0.5f;   // 0 skinny .. 1 chubby
   float metabolism = 1.0f;  // 0.7 .. 1.3

@@ -278,6 +278,114 @@ void Scene::drawRoundRoom(Canvas &c, PetCore &core, Floor f, bool beat) {
   c.circle(m, m, (int)w.rimRadius(), trim);
 }
 
+// ============================================================ underwater
+
+namespace {
+// Water from the surface (0) down to the bottom (5).
+constexpr uint32_t WATER_DAY[6] = {0x7AD4F0, 0x5EC0E6, 0x46A8D8, 0x3690C6, 0x2A78B0, 0x22629A};
+constexpr uint32_t WATER_NIGHT[6] = {0x2A4A78, 0x24426E, 0x1E3A64, 0x1A3358, 0x162C4E, 0x122644};
+constexpr uint32_t WATER_DARK[6] = {0x162236, 0x141F32, 0x121C2E, 0x10192A, 0x0E1626, 0x0C1422};
+uint16_t waterShade(bool night, bool dark, int band) {
+  const uint32_t *t = dark ? WATER_DARK : (night ? WATER_NIGHT : WATER_DAY);
+  return hex565(t[band < 0 ? 0 : (band > 5 ? 5 : band)]);
+}
+}  // namespace
+
+void Scene::drawSeaweed(Canvas &c, int x, int rootY, int height, int seed, bool dark) {
+  const uint16_t a = dark ? hex565(0x1A3A2A) : hex565(0x2E8A4A), b = dark ? hex565(0x20462F) : hex565(0x4CB860);
+  for (int j = 0; j < height; j++) {
+    float sway = sinf(t_ * 1.4f + seed * 1.7f + j * 0.18f) * j * 0.12f;
+    int xx = x + (int)lroundf(sway), yy = rootY - j;
+    c.fillRect(xx, yy, 2, 1, (j / 3 + seed) % 2 ? a : b);
+    if (j % 6 == 3) c.pset(xx + ((j / 6 + seed) % 2 ? 2 : -1), yy, b);  // little leaves
+  }
+}
+
+void Scene::drawWaterRoom(Canvas &c, PetCore &core, Floor f, bool beat) {
+  const bool dark = core.lightsOut, night = core.night;
+  const int S = c.size();
+  uint8_t saved = c.rot();
+  c.setRot(floorRot(f));
+  // water, banded from the surface down, with a dithered seam between bands
+  for (int band = 0; band < 6; band++) {
+    int y0 = band * S / 6, y1 = (band + 1) * S / 6;
+    c.fillRect(0, y0, S, y1 - y0, waterShade(night, dark, band));
+    if (band < 5) c.ditherFill(0, y1 - 2, S, 2, waterShade(night, dark, band + 1), 2);
+  }
+  // shimmering surface
+  uint16_t shine = dark ? hex565(0x2A3A52) : (night ? hex565(0x4A6A9A) : hex565(0xC8F4FF));
+  for (int x = 0; x < S; x++) c.pset(x, 3 + (int)lroundf(sinf(x * 0.25f + t_ * 2.0f)), shine);
+  // seaweed and a rock along the bottom
+  const int sand = S - (int)World::WALL - 3;
+  const int weeds[4][2] = {{S * 12 / 100, 26}, {S * 28 / 100, 18}, {S * 78 / 100, 30}, {S * 90 / 100, 20}};
+  for (int i = 0; i < 4; i++) drawSeaweed(c, weeds[i][0], sand, weeds[i][1], i, dark);
+  c.fillCircle(S * 58 / 100, sand + 1, 4, dark ? hex565(0x2A2A3A) : hex565(0x6A7480));
+  c.fillCircle(S * 58 / 100 - 1, sand, 2, dark ? hex565(0x34344A) : hex565(0x8A96A4));
+  // sand
+  uint16_t sandA = dark ? hex565(0x3A3428) : hex565(0xE8CC80), sandB = dark ? hex565(0x322C22) : hex565(0xD4B464);
+  if (beat) {
+    sandA = blend565(sandA, hex565(0xFFE070), 110);
+    sandB = blend565(sandB, hex565(0xFF8FA8), 110);
+  }
+  c.fillRect(0, sand, S, S - sand, sandA);
+  c.ditherFill(0, sand, S, S - sand, sandB, 2);
+  c.setRot(saved);
+}
+
+void Scene::drawRoundWaterRoom(Canvas &c, PetCore &core, Floor f, bool beat) {
+  const World &w = core.world;
+  if (bowlSize_ != w.arena().size) buildBowl(w);
+  const int S = bowlSize_, m = S / 2;
+  const bool dark = core.lightsOut, night = core.night;
+  const float R = w.rimRadius();
+  const Vec2 down = floorDown(f);
+  uint16_t water[6];
+  for (int i = 0; i < 6; i++) water[i] = waterShade(night, dark, i);
+  uint16_t sandA = dark ? hex565(0x3A3428) : hex565(0xE8CC80), sandB = dark ? hex565(0x322C22) : hex565(0xD4B464);
+  if (beat) {
+    sandA = blend565(sandA, hex565(0xFFE070), 110);
+    sandB = blend565(sandB, hex565(0xFF8FA8), 110);
+  }
+  uint16_t *px = c.pixels();
+  for (int y = 0; y < S; y++) {
+    uint16_t *row = px + y * S;
+    int ho = bowlOuter_[y], hi = bowlInner_[y];
+    for (int x = 0; x < S; x++) row[x] = col::BLACK;
+    if (ho < 0) continue;
+    for (int x = m - ho; x < m + ho; x++) {
+      int dx = x < m ? m - 1 - x : x - m;
+      if (hi >= 0 && dx < hi) {
+        // depth along "down": 0 at the surface side, 5 at the bottom, dithered seams
+        float t = ((x + 0.5f - m) * down.x + (y + 0.5f - m) * down.y) / R;  // -1 .. 1
+        float bf = (t + 1) * 3.0f;
+        int band = (int)bf;
+        if (bf - band > 0.85f && ((x + y) & 1)) band++;
+        row[x] = water[band < 0 ? 0 : (band > 5 ? 5 : band)];
+      } else {
+        int i = y * S + x;
+        row[x] = (bowlTiles_[i >> 3] >> (i & 7)) & 1 ? sandA : sandB;  // the rim is sand
+      }
+    }
+  }
+  uint8_t saved = c.rot();
+  c.setRot(floorRot(f));
+  // shimmering surface near the top
+  uint16_t shine = dark ? hex565(0x2A3A52) : (night ? hex565(0x4A6A9A) : hex565(0xC8F4FF));
+  int sy = m - (int)(R * 0.82f);
+  int hw = bowlInner_[sy] - 2;
+  for (int x = m - hw; x < m + hw; x++) c.pset(x, sy + (int)lroundf(sinf(x * 0.25f + t_ * 2.0f)), shine);
+  // seaweed rooted on the rim, either side of the bottom
+  const int weeds[4][2] = {{-58, 30}, {-34, 22}, {38, 34}, {62, 22}};
+  for (int i = 0; i < 4; i++) {
+    int x = m + weeds[i][0];
+    drawSeaweed(c, x, m + bowlInner_[x] - 2, weeds[i][1], i, dark);
+  }
+  int rx = m + 14;
+  c.fillCircle(rx, m + bowlInner_[rx] - 2, 4, dark ? hex565(0x2A2A3A) : hex565(0x6A7480));
+  c.fillCircle(rx - 1, m + bowlInner_[rx] - 3, 2, dark ? hex565(0x34344A) : hex565(0x8A96A4));
+  c.setRot(saved);
+}
+
 // ============================================================ props
 
 void Scene::drawProps(Canvas &c, PetCore &core) {
@@ -320,6 +428,15 @@ void Scene::drawProps(Canvas &c, PetCore &core) {
       }
       case PropKind::Medicine: artAt(c, BOTTLE, 7, x, y, "XWR", BOTTLE_C, rot, k); break;
       case PropKind::Bug: {
+        if (core.world.water()) {
+          // underwater the "bug" is a little fish, swimming to and fro
+          bool left = cosf(t_ * 0.9f) < 0;
+          int d = left ? -1 : 1;
+          c.fillRect(x - 2 * k, y - k, 4 * k, 2 * k, hex565(0xFF9A3C));                // body
+          c.fillRect(d > 0 ? x - 3 * k : x + 2 * k, y - k, k, 2 * k, hex565(0xE0602A));  // tail
+          c.fillRect(d > 0 ? x + k : x - 2 * k, y - k, k, k, K_OUT);                     // eye
+          break;
+        }
         c.fillRect(x - k, y - k, 2 * k, 2 * k, K_OUT);
         bool up = ((int)(t_ * 12)) % 2;
         c.fillRect(x - 2 * k, y - (up ? 2 : 1) * k, k, k, K_WHITE);
@@ -458,7 +575,11 @@ void Scene::drawWorld(Canvas &c, PetCore &core, const Brain &brain, float dt) {
     }
   }
   c.setRot(0);
-  if (core.world.round()) {
+  if (core.world.water()) {
+    if (core.world.round()) drawRoundWaterRoom(c, core, f, beat);
+    else drawWaterRoom(c, core, f, beat);
+    fade_ = 0;
+  } else if (core.world.round()) {
     drawRoundRoom(c, core, f, beat);
     fade_ = 0;
   } else {
