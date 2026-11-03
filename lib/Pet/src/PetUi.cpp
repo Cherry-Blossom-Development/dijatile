@@ -472,7 +472,7 @@ void PetApp::render(Canvas &c) {
   c.uiView();
   switch (screen_) {
     case Screen::Pet:
-      scene_.drawHud(c, core_, brain_, uiRot_, statusBar_, battery_, charging_, clock);
+      scene_.drawHud(c, core_, brain_, uiRot_, statusBarShown(), battery_, charging_, clock);
       c.uiView();
       if (brain_.seq() == Seq::Farewell) drawFarewell(c);
       break;

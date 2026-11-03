@@ -145,9 +145,11 @@ constexpr float NIGHT_START_H = 21.0f, NIGHT_END_H = 7.0f;
 // ---------------------------------------------------------------- display / power
 constexpr int LOGICAL_W = 120, LOGICAL_H = 120;
 constexpr uint32_t FPS_ACTIVE = 30, FPS_IDLE = 15, FPS_ASLEEP = 5;
-constexpr float DIM_AFTER_S = 60.0f;
-constexpr uint8_t BRIGHT_DIM_PCT = 40, BRIGHT_SLEEP_PCT = 10;
-constexpr float SLEEP_SCREEN_OFF_S = 30.0f;
+constexpr float DIM_AFTER_S = 120.0f;          // no input this long: dim to BRIGHT_DIM_PCT
+constexpr uint8_t BRIGHT_DIM_PCT = 40;         // of the brightness setting
+constexpr uint8_t SLEEP_DIM_PCT = 4;           // asleep: just visible (absolute); face down: off
+constexpr uint8_t BRIGHT_SLEEP_PCT = 10;       // asleep, for a few seconds after a touch or key
+constexpr float STATUS_HIDE_USB_S = 300.0f;    // on a computer's USB: hide the status bar after this idle
 constexpr float UI_ROTATE_HOLD_S = 0.3f;
 constexpr uint32_t SAVE_DEBOUNCE_MS = 60000;
 constexpr int BATTERY_LOW_PCT = 15, BATTERY_EMPTY_PCT = 5;

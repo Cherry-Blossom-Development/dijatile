@@ -45,6 +45,8 @@ class PetApp {
   void setButtonsDown(bool down) { buttonsDown_ = down; }
   bool musicScreen() const { return screen_ == Screen::Player; }
   bool asleep() const { return brain_.asleep(); }
+  // The status bar is on (Back toggles it) and not hidden by a long idle on USB.
+  bool statusBarShown() const;
   const PetCore &core() const { return core_; }
 
  private:

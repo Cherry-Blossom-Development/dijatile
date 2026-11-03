@@ -179,7 +179,8 @@ writer of all game state.
 ### Speaker amp, power and sleep
 
 - **Amp.** On the 1.54 the NS4150B amp is switched off after 2 s without sound, and kept off while listening.
-- **Brightness.** Full while active. Dims to 40 % after 60 s without input. 10 % for the first 30 s of sleep, then off. Off at once when face down or after "lights off".
+- **Brightness.** Full while active. Dims to 40 % after 2 minutes without input. While the pet sleeps the screen stays at 4 %, just enough to see it; face down it goes off.
+- **Plugged into a computer** the screen stays on and the tile never sleeps; the status bar hides after 5 minutes without input and comes back with the next button or touch.
 - **Frame rate.** 30 fps active, 15 dimmed, 5 asleep, 1 with the screen off.
 - **System light sleep.** After 5 idle minutes the app manager light-sleeps as usual. It wakes on a button, a touch or motion, and the pet treats the time away as sleep.
 - **Battery.** Below 15 % the battery icon pulses. Below 5 % the pet saves and shows a "charge me" screen.

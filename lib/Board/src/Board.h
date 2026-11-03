@@ -59,6 +59,8 @@ void sdUnmount();
 // Releases the power latch. On battery this turns the board off; on USB it
 // does nothing visible.
 void powerOff();
+// How long the side button is held to power off (awake or asleep).
+constexpr uint32_t POWER_OFF_HOLD_MS = 3000;
 
 enum class WakeReason : uint8_t { Button, Touch, Motion };
 
@@ -68,5 +70,27 @@ enum class WakeReason : uint8_t { Button, Touch, Motion };
 // ESP-NOW first: neither survives light sleep.
 WakeReason lightSleep();
 
+// Sleep trace, for a tile that won't wake. Each step of going to sleep and
+// waking is recorded in RTC memory, which survives a reset or reflash (not a
+// power cut), and copied to NVS, which survives a flat battery too (without
+// the wake counters of the last stretch asleep). printSleepTrace() prints
+// where the last sleep got to; it runs at boot and from the "sleep trace"
+// console command. The next sleep clears it.
+enum class SleepStage : uint8_t {
+  None,
+  AppSleep,      // app_manager: calling the app's sleep()
+  Stopping,      // app_manager: stopping audio and ESP-NOW
+  WaitRelease,   // lightSleep: waiting for buttons to be let go
+  Sampling,      // lightSleep: screen off, reading the resting accel
+  Asleep,        // lightSleep: in the light-sleep loop
+  Waking,        // lightSleep: woke, restoring IMU and screen
+  Resuming,      // app_manager: restarting ESP-NOW and audio
+  Swallowing,    // app_manager: swallowing the waking input
+  AppWake,       // app_manager: calling the app's wake()
+  Done,          // back in the main loop
+  PoweredOff,    // lightSleep: side button held, power latch released
+};
+void sleepMark(SleepStage stage);
+void printSleepTrace();
 
 }  // namespace board

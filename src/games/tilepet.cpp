@@ -302,6 +302,7 @@ class Tilepet : public App, public pet::PetHost {
   int batteryPercent() override { return board::batteryPercent(); }
   int charging() override { return board::charging(); }
   void keepAwake() override { app_manager::noteActivity(); }
+  bool usbHost() override { return board::usbHost(); }
 
   int volume() override { return app_manager::volume(); }
 

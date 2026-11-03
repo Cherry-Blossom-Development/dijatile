@@ -47,7 +47,7 @@ works by touch; the buttons are a fallback for boards without a touchscreen.
 | A (BOOT) click | next entry | up to the app |
 | A long press | — | back to the launcher (reserved) |
 | B (PWR) click | open | up to the app |
-| B held 3 s | power off (on battery) | power off (reserved) |
+| B held 3 s | power off (on battery; also works from sleep) | power off (reserved) |
 | C (PLUS, 1.54 only) | previous entry | up to the app |
 
 Built in:

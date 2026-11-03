@@ -70,7 +70,22 @@ The LED is assumed to be pin -> resistor -> LED -> ground, lit by driving the pi
 - **Bus sharing:** every user takes one recursive lock (`board::I2cGuard`) around a whole
   transaction, and the bus drops to **100 kHz** the moment an edge board is found (touch
   and IMU reads are a little slower from then on).
-- **Console:** already on USB-Serial/JTAG, so UART0 RX/TX are free for the INT line.
+- **Console:** `Serial` is the USB-Serial/JTAG port, but the framework's ESP-IDF
+  console (boot ROM, `log_*`, panic output) is UART0 first and USB second
+  (`CONFIG_ESP_CONSOLE_UART`, `..._SECONDARY_USB_SERIAL_JTAG`). So until the edge port's
+  `pinMode(INT_GPIO, INPUT_PULLUP)` the boot ROM drives the round tile's GPIO 43 (UART0
+  TX) as an output, briefly fighting the PCF8574's open-drain INT. Once the pin is an
+  input, nothing drives it and UART0 log output goes nowhere.
+- **Interrupt storm guard:** `onSensorInterrupt` masks the INT pin's interrupt
+  (`gpio_ll_intr_disable`) and `readPort()` unmasks it right after reading the PCF8574,
+  so there is at most one interrupt per read; while one is pending the task reads within
+  a millisecond. The PCF8574 also releases INT when an input changes back, so a
+  phototransistor at its threshold, or seeing fast-flickering light, can toggle INT far
+  faster than an ISR keeps up with. A crash loop on the round tile (2026-11-03,
+  interrupt watchdog on core 1 inside `gpio_isr_loop`, starting as the edge interrupt
+  was attached) led to this; whether a storm on INT caused it isn't proven (see
+  `src/specs/app-framework.md` for the other suspect, interrupt settings left over
+  from before a CPU reset).
 
 ## Quick bench test
 
@@ -163,7 +178,7 @@ Log lines are short and greppable, e.g. `EDGE E join aa:bb:cc:dd:ee:ff their=W r
 | `EdgeLink` | per-edge state machine; talks to the world only through `LinkHost` |
 | `EdgeBoardConfig.h` | the only place board differences live (pins, address, port type) |
 | `EdgePort` | the four LEDs and four sensors, whatever is behind them (`hw/EdgePort.cpp`: PCF8574 or direct GPIO) |
-| `hw/EdgeService.cpp` | the task: reads sensors (INT + 10 ms fallback, 2 ms while a frame is expected), drives the beacon and blink frames, decodes frames for `EdgeLink`, relays system messages |
+| `hw/EdgeService.cpp` | the task: reads sensors (INT, masked until the next read, + 10 ms fallback, 2 ms while a frame is expected), drives the beacon and blink frames, decodes frames for `EdgeLink`, relays system messages |
 | `Edge.h` | the public API: `edge::begin()`, `neighbor()`, the joined/left callbacks, `handleCommand()` |
 
 The core never touches hardware or time: the caller passes timestamps (microseconds,

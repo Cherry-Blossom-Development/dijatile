@@ -1,5 +1,7 @@
 #include "AppManager.h"
 
+#include <esp_task_wdt.h>
+
 #include <Preferences.h>
 
 #include "Launcher.h"
@@ -9,7 +11,6 @@ namespace app_manager {
 
 namespace {
 constexpr uint32_t MIN_FRAME_US = 16000;  // cap at ~60 fps
-constexpr uint32_t POWER_OFF_HOLD_MS = 3000;
 // No touch, button or (for apps that read the IMU) movement for this long
 // blanks the screen and light-sleeps until the user comes back. While a
 // computer is connected over USB it only blanks the screen and stays awake
@@ -31,6 +32,7 @@ bool switchPending = false;
 uint32_t lastFrameUs = 0;
 uint32_t lastActivityMs = 0;
 bool resting = false;  // idle on USB: screen off, awake
+bool forceSleep = false;  // "sleep" console command
 uint32_t restMotion0 = 0, restImuMs = 0;
 constexpr uint32_t REST_IMU_MS = 50;  // how often to read the IMU for movement while resting
 int volumeLevel = DEFAULT_VOLUME;
@@ -159,7 +161,7 @@ void handleButtons() {
     }
     active->onButton(in);
   }
-  if (board::buttons.heldMs(Button::B) >= POWER_OFF_HOLD_MS) {
+  if (board::buttons.heldMs(Button::B) >= board::POWER_OFF_HOLD_MS) {
     Arduino_Canvas &g = *board::display.gfx();
     g.fillScreen(RGB565_BLACK);
     ui::centered(g, "Bye", Display::CY, 3, RGB565_WHITE);
@@ -169,6 +171,7 @@ void handleButtons() {
     // Still here: running on USB power. Wait for release so it doesn't repeat.
     while (board::buttons.isDown(Button::B)) {
       board::buttons.poll();
+      esp_task_wdt_reset();
       delay(10);
     }
     while (board::buttons.next(in)) {
@@ -192,7 +195,9 @@ void swallowWakingInput();
 
 void sleepNow() {
   Serial.println("[sleep]");
+  board::sleepMark(board::SleepStage::AppSleep);
   active->sleep();
+  board::sleepMark(board::SleepStage::Stopping);
   stopAudio();
   net::end();
   for (int i = 0; i < 5; i++) {  // let the touch controller release its INT line
@@ -204,13 +209,17 @@ void sleepNow() {
   Serial.printf("[wake] after %lu ms: %s\n", (unsigned long)(millis() - sleptAt), why == board::WakeReason::Motion  ? "motion"
                                : why == board::WakeReason::Touch ? "touch"
                                                           : "button");
+  board::sleepMark(board::SleepStage::Resuming);
   net::resume();
   startAudio();
 
+  board::sleepMark(board::SleepStage::Swallowing);
   swallowWakingInput();
   lastActivityMs = millis();
   lastFrameUs = micros();
+  board::sleepMark(board::SleepStage::AppWake);
   active->wake();
+  board::sleepMark(board::SleepStage::Done);
 }
 
 // Throw away the touch or press that ended a sleep or rest: it isn't meant
@@ -297,6 +306,22 @@ bool handleCommand(const char *line) {
     }
     return true;
   }
+  // "sleep": light-sleep now, as if idle on battery (for testing wake-up).
+  // "sleep trace": how far the last sleep got (see board::sleepMark).
+  if (strcmp(line, "sleep trace") == 0) {
+    board::printSleepTrace();
+    return true;
+  }
+  // "wdt test": hang on purpose; the watchdog should reset the tile.
+  if (strcmp(line, "wdt test") == 0) {
+    Serial.println("hanging; the watchdog should reset in ~10 s");
+    for (;;) {
+    }
+  }
+  if (strcmp(line, "sleep") == 0) {
+    forceSleep = true;
+    return true;
+  }
   return active && active->onCommand(line);
 }
 
@@ -330,6 +355,11 @@ void loop() {
   }
   handleButtons();
   handleTouch();
+  if (forceSleep) {
+    forceSleep = false;
+    sleepNow();
+    return;
+  }
   if (idleTooLong()) {
     if (board::usbHost()) {
       startRest();

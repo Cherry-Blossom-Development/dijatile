@@ -1,6 +1,6 @@
 # Tilepet: Virtual Pet Game — Implementation Spec
 
-A tamagotchi-style virtual pet game that runs as an app (a launcher **game**) inside the Dijatile firmware, on both display tiles: the **Waveshare ESP32-S3-Touch-LCD-1.54** (square, 240×240, the primary target) and the **ESP32-S3-Touch-AMOLED-1.46B** (round, 412×412). The game is a self-contained, board-free module behind a host interface (§3), so the same code also runs in host unit tests.
+A tamagotchi-style virtual pet game that runs as an app (a launcher **game**) inside the Dijatile firmware, on both display tiles: the **Waveshare ESP32-S3-Touch-LCD-1.54** (square, 240×240, the primary target) and the **Waveshare ESP32-S3-Touch-LCD-1.46B** (round, 412×412). The game is a self-contained, board-free module behind a host interface (§3), so the same code also runs in host unit tests.
 
 This spec is the source of truth: it should be complete enough to rebuild the game from scratch. Every feature, behaviour or design decision added later goes into this file in the same change as the code. User-facing documentation lives in `docs/tilepet.md`.
 
@@ -36,7 +36,7 @@ These are settled. Use the existing Dijatile codebase for all of them.
 | Power | LiPo on MX1.25, onboard charger, USB-C | Battery voltage on GPIO 1 behind a ×3 divider (Waveshare's demos; not yet checked with a meter). Charging status on GPIO 3, low while charging. |
 | RTC | None | Time handling in §10.4. |
 
-**On the round 1.46B:** 412×412 AMOLED, SPD2010 touch, two buttons only (BOOT and PWR), one MEMS mic on its own I²S port, a PCF85063 RTC (not used yet), battery ADC on GPIO 8, no charging signal.
+**On the round 1.46B:** 412×412 round IPS LCD with a PWM backlight (both tiles are LCDs, so neither can burn in), SPD2010 display and touch, two buttons only (BOOT and PWR), one MEMS mic on its own I²S port, a PCF85063 RTC (not used yet), battery ADC on GPIO 8, no charging signal.
 
 **IMU axes.** The mapping from IMU axes to screen axes is `imu_axes` in `BoardConfig.h` (swap x/y, then x, y and z signs). On both boards the z axis reads −1 face up, so `Z_SIGN = −1` (checked on hardware on both tiles).
 
@@ -728,7 +728,7 @@ Actual weight in game moves the build up or down one step from the set point (ov
 ### 11.1 Pet screen (home)
 
 - Room background, the pet, props.
-- **Status bar** at the screen "top" (§7.3), two rows, 16 px high (`Scene::STATUS_H`), shown all the time (`Back` toggles it; an attention call turns it back on):
+- **Status bar** at the screen "top" (§7.3), two rows, 16 px high (`Scene::STATUS_H`), shown all the time (`Back` toggles it; an attention call turns it back on), except that while a computer is connected over USB it hides after `STATUS_HIDE_USB_S` (5 min) without input and comes back with the next key or touch (`PetApp::statusBarShown()`):
   - Row 1: the pet's **name** on the left. On the right, from the edge inwards: battery (with "+" while charging), mic icon while listening, note while music plays, poop icon and count, sick "+", and a flashing "!" during an attention call. Time in the middle if known.
   - Row 2: three meters, 30 px bars with an icon: food (apple, Hunger), happiness (heart, Happy) and energy (bolt, Energy). Green from 50, orange from 25, red below.
   - The speech bubble stays below it.
@@ -767,8 +767,9 @@ Leave a registry so more games can be added (ideas for later: Balance — keep a
 ## 12. Power
 
 - Pet awake, user interacting: brightness setting, 30 fps.
-- No input for 60 s on the pet screen (pet awake, no music or dancing): dim to 40 % of the setting, 15 fps.
-- Pet asleep: backlight 10 % for the first 30 s, then off, 5 fps. Face down or "lights off": off at once. A key or touch lights it at 10 % for 5 s.
+- No input for `DIM_AFTER_S` (2 min) on the pet screen (pet awake, no music or dancing): dim to 40 % of the setting, 15 fps.
+- Pet asleep (on its own or "lights off"): backlight `SLEEP_DIM_PCT` (4 %), just enough to see it, 5 fps. Face down: off. A key or touch lights it at 10 % for 5 s.
+- **On a computer's USB** (`PetHost::usbHost()`, see `app-framework.md` §1) Tilepet calls `keepAwake()` every tick, so the system never rests or sleeps and the screen stays on (dimmed as above); only the status bar hides after 5 idle minutes. On battery or a charger, the system's 5-minute light sleep still applies.
 - Backlight off: 1 fps.
 - `wantsFrame()` implements these rates; the host returns it from `App::redraw()`, so skipped frames cost no draw or flush.
 - **System sleep (as built):** no deep sleep. After 5 idle minutes the app manager light-sleeps as it does for every app (wake on button, touch or motion), or, while a computer is connected over USB, only blanks the screen and rests awake (`app-framework.md` §1). Tilepet calls `keepAwake()` while music plays or it is listening, gets `sleep()` (save, stop music and mic) before and `wake()` after, and treats the time away as sleep (§10.4).

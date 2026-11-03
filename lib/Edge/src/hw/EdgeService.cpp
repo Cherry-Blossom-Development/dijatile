@@ -5,6 +5,8 @@
 #include <math.h>
 #include <stdarg.h>
 #include <esp_timer.h>
+#include <driver/gpio.h>
+#include <hal/gpio_ll.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
@@ -39,6 +41,25 @@ struct NetMsg {
 };
 
 void IRAM_ATTR onSensorInterrupt(void *);
+
+// Storm guard: the ISR masks the PCF8574's INT line and readPort() unmasks it
+// after reading, so there is at most one interrupt per read (the task reads
+// at least every millisecond while one is pending). The PCF8574 releases INT
+// when an input changes back, so a phototransistor sitting at its threshold,
+// or seeing fast-flickering light, can toggle INT far faster than an ISR can
+// keep up with; unguarded, that kept core 1 in interrupt context until the
+// interrupt watchdog reset the tile.
+inline void IRAM_ATTR maskSensorIrq() {
+#if defined(EDGE_PORT_PCF8574)
+  gpio_ll_intr_disable(&GPIO, (uint32_t)boardcfg::INT_GPIO);
+#endif
+}
+
+inline void unmaskSensorIrq() {
+#if defined(EDGE_PORT_PCF8574)
+  gpio_intr_enable((gpio_num_t)boardcfg::INT_GPIO);
+#endif
+}
 
 class Service : public LinkHost {
  public:
@@ -215,6 +236,7 @@ class Service : public LinkHost {
     int64_t stamp = fromIsr ? isrUs : now;
     isrPending = false;
     uint8_t lv = port->readLevels();
+    if (hasInterrupt) unmaskSensorIrq();
     int64_t readUs = esp_timer_get_time();
     uint8_t diff = (uint8_t)((lv ^ levels) & port->edgesPresent());
 
@@ -404,6 +426,7 @@ class Service : public LinkHost {
 };
 
 void IRAM_ATTR onSensorInterrupt(void *) {
+  maskSensorIrq();
   if (!svc) return;
   svc->isrUs = esp_timer_get_time();
   svc->isrPending = true;

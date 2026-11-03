@@ -5,8 +5,12 @@
 #include <Board.h>
 #include <Edge.h>
 #include <Net.h>
+#include <esp_task_wdt.h>
 
 #include "core/AppManager.h"
+
+// No loop() pass for this long resets the chip (see the end of setup()).
+static constexpr uint32_t WATCHDOG_MS = 10000;
 
 void setup() 
 {
@@ -15,6 +19,7 @@ void setup()
   // Serial write can otherwise stall the main loop for up to two seconds.
   Serial.setTxTimeoutMs(0);
   Serial.println(BOARD_NAME);
+  board::printSleepTrace();
 
   if (!board::begin()) Serial.println("Board init failed");
   if (!board::display.begin()) Serial.println("Display init failed");
@@ -38,6 +43,17 @@ void setup()
   // Boots into the launcher. To make one app the home screen instead (skipping
   // the launcher entirely), pass it here: app_registry::byName("Blank Game").
   app_manager::begin();
+
+  // Watchdog: if loop() stops coming round (a hang anywhere, including the
+  // sleep and wake path), reset the chip instead of running stuck until the
+  // battery is flat. Arduino feeds it before each loop(); lightSleep() feeds
+  // it on every wake. The sleep trace survives the reset.
+  esp_task_wdt_config_t wdt = {};
+  wdt.timeout_ms = WATCHDOG_MS;
+  wdt.idle_core_mask = 1 << 0;  // keep the framework's idle-task check on core 0
+  wdt.trigger_panic = true;
+  esp_task_wdt_reconfigure(&wdt);
+  enableLoopWDT();
 }
 
 // Serial console: one command per line ("edge status", "pet status", ...).

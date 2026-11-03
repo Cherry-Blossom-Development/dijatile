@@ -49,6 +49,8 @@ class PetHost {
   virtual int charging() = 0;                      // 1 yes, 0 no, -1 unknown
   // Music or listening is on: don't let the system light-sleep.
   virtual void keepAwake() = 0;
+  // A computer is connected over USB (not just a charger).
+  virtual bool usbHost() { return false; }
 
   // ---- system volume, 0..10 (shared with the rest of the firmware)
   virtual int volume() = 0;

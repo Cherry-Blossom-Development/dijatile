@@ -586,10 +586,14 @@ struct FakeHost : PetHost {
   bool saveNvs(const SaveData &s) override { nvs = s; hasNvs = true; return true; }
   bool loadSd(SaveData &o) override { if (hasSd) o = sd; return hasSd; }
   bool saveSd(const SaveData &s) override { sd = s; hasSd = true; return true; }
-  void setBacklight(uint8_t) override {}
+  uint8_t backlight = 255;
+  bool usb = false;
+  int keptAwake = 0;
+  void setBacklight(uint8_t b) override { backlight = b; }
   int batteryPercent() override { return -1; }
   int charging() override { return -1; }
-  void keepAwake() override {}
+  void keepAwake() override { keptAwake++; }
+  bool usbHost() override { return usb; }
   int volume() override { return 5; }
   void setVolume(int) override {}
   int musicScan() override { return -1; }
@@ -716,6 +720,34 @@ void test_an_aquatic_pet_swims() {
   TEST_ASSERT_TRUE(swam);
   TEST_ASSERT_TRUE(bubbles);
   TEST_ASSERT_TRUE(app.core().world.water());
+}
+
+void test_screen_on_usb_and_asleep() {
+  static FakeHost host;
+  static PetApp app;
+  host.usb = true;
+  app.begin(&host);
+  app.onResume();
+  app.command("pet stage adult");
+  pressKey(app, host, Key::Next);  // open and close the menu: counts as input
+  pressKey(app, host, Key::Back);
+  TEST_ASSERT_TRUE(app.statusBarShown());
+  host.keptAwake = 0;
+  runApp(app, host, 1000);
+  TEST_ASSERT_TRUE(host.keptAwake > 0);  // on a computer's USB the system doesn't rest
+  // after 2 minutes the screen dims
+  runApp(app, host, 125000);
+  TEST_ASSERT_TRUE(host.backlight < 100 && host.backlight > 10);
+  // after 5 idle minutes the status bar hides; any key brings it back
+  runApp(app, host, 180000);
+  TEST_ASSERT_FALSE(app.statusBarShown());
+  pressKey(app, host, Key::Next);
+  pressKey(app, host, Key::Back);
+  TEST_ASSERT_TRUE(app.statusBarShown());
+  // asleep: very dim but on
+  app.command("pet sleep");
+  runApp(app, host, 8000);
+  TEST_ASSERT_EQUAL(tune::SLEEP_DIM_PCT, host.backlight);
 }
 
 void test_a_hungry_pet_says_so() {
@@ -1053,6 +1085,7 @@ int main(int, char **) {
   RUN_TEST(test_power_cycle_restores_and_backup_fallback);
   RUN_TEST(test_food_goes_in_the_bowl_and_the_pet_walks_over);
   RUN_TEST(test_a_hungry_pet_says_so);
+  RUN_TEST(test_screen_on_usb_and_asleep);
   RUN_TEST(test_an_aquatic_pet_swims);
   RUN_TEST(test_genome_deterministic);
   RUN_TEST(test_genome_distribution_matches_weights);

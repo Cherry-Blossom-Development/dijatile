@@ -320,7 +320,8 @@ void PetApp::updatePower() {
   if (screen_ == Screen::Charge) {
     t = 30;
   } else if (brain_.asleep()) {
-    t = core_.lightsOut ? 0 : (brain_.napSeconds() < SLEEP_SCREEN_OFF_S ? BRIGHT_SLEEP_PCT : 0);
+    // Asleep: just visible. Face down nobody can see it, so off.
+    t = core_.motion.info().state == MotionState::FaceDown ? 0 : SLEEP_DIM_PCT;
     if (recentInput && t < BRIGHT_SLEEP_PCT) t = BRIGHT_SLEEP_PCT;
   } else if (now - lastInputMs_ > DIM_AFTER_S * 1000 && !core_.musicPlaying && !brain_.dancing() &&
              screen_ == Screen::Pet) {
@@ -443,7 +444,9 @@ void PetApp::tick() {
 
   // Handling noise must not look like beats to the mic.
   core_.micBeat.setBlank(touchDown_ || buttonsDown_ || m.fastRms > 0.08f);
-  if (core_.musicPlaying || brain_.micOn()) host_->keepAwake();
+  // On a computer's USB the screen stays on (no system rest): the pet shows,
+  // and the status bar hides after a while (statusBarShown()).
+  if (core_.musicPlaying || brain_.micOn() || host_->usbHost()) host_->keepAwake();
 }
 
 bool PetApp::wantsFrame() {
@@ -459,6 +462,12 @@ bool PetApp::wantsFrame() {
 }
 
 // ============================================================ input
+
+bool PetApp::statusBarShown() const {
+  if (!statusBar_) return false;
+  // Plugged into a computer the screen stays on; hide the bar after a long idle.
+  return !(host_->usbHost() && core_.nowMs - lastInputMs_ > STATUS_HIDE_USB_S * 1000);
+}
 
 void PetApp::toUi(uint8_t rot, float x, float y, float &u, float &v) const {
   screenToUi(rot, x - uiOff_, y - uiOff_, u, v);
@@ -530,7 +539,7 @@ void PetApp::petScreenInput(const InputEvent &e, bool player) {
       }
       break;
     case InputKind::TouchDown:
-      touchForPet_ = v >= (statusBar_ ? Scene::STATUS_H : 12);
+      touchForPet_ = v >= (statusBarShown() ? Scene::STATUS_H : 12);
       if (touchForPet_) brain_.touchDown(e.x, e.y);
       break;
     case InputKind::TouchMove:
@@ -541,7 +550,7 @@ void PetApp::petScreenInput(const InputEvent &e, bool player) {
       touchForPet_ = false;
       break;
     case InputKind::Tap:
-      if (v < (statusBar_ ? Scene::STATUS_H : 12)) {
+      if (v < (statusBarShown() ? Scene::STATUS_H : 12)) {
         core_.sfx.play(Sfx::Beep);
         if (player) openList(ListId::Tracks);
         else openScreen(Screen::Menu);
