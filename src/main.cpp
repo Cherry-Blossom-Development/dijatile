@@ -40,8 +40,9 @@ void setup()
   edgeCfg.unlock = [](void *) { board::i2cUnlock(); };
   edge::begin(edgeCfg);
 
-  // Boots into the launcher. To make one app the home screen instead (skipping
-  // the launcher entirely), pass it here: app_registry::byName("Blank Game").
+  // Boots into the launcher, with Tilepet selected. To make one app the home
+  // screen instead (skipping the launcher entirely), pass it here:
+  // app_registry::byName("Tilepet").
   app_manager::begin();
 
   // Watchdog: if loop() stops coming round (a hang anywhere, including the

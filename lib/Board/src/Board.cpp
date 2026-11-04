@@ -85,9 +85,12 @@ void powerOff() {
 
 namespace board {
 
+uint32_t batteryMillivolts() {
+  return (uint32_t)(analogReadMilliVolts(pins::BAT_ADC) * battery::DIVIDER);
+}
+
 int batteryPercent() {
-  uint32_t mv = analogReadMilliVolts(pins::BAT_ADC);
-  float v = mv / 1000.0f * battery::DIVIDER;
+  float v = batteryMillivolts() / 1000.0f;
   if (v < 2.5f) return -1;  // nothing on the battery input
   float pct = (v - battery::EMPTY_V) / (battery::FULL_V - battery::EMPTY_V) * 100.0f;
   return (int)constrain(pct, 0.0f, 100.0f);

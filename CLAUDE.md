@@ -46,9 +46,9 @@ Firmware for the Dijatile tiles: two ESP32-S3 display tiles (Waveshare 1.46B rou
 
 ## Gotchas
 
-- After 5 idle minutes a display tile blanks its screen. Plugged into a computer it
-  stays awake and its USB port stays up; on battery or a charger it light-sleeps and the
-  USB port disappears (wake it before flashing). See `src/specs/app-framework.md`.
+- After 5 idle minutes a display tile light-sleeps and its USB port disappears (wake it
+  before flashing). Plugged into a computer it never sleeps, only dims; a charger counts
+  as battery. See `src/specs/app-framework.md`.
 - Never let `Serial` block: `Serial.setTxTimeoutMs(0)` is set in both firmwares.
 - Arduino defines macros like `OCT`, `DEC`, `TWO_PI`, `PI`: avoid those names.
 - Read `millis()` after code that stamps times, or unsigned subtraction wraps.

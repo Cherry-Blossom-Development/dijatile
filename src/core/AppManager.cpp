@@ -13,14 +13,15 @@ namespace {
 constexpr uint32_t MIN_FRAME_US = 16000;  // cap at ~60 fps
 // No touch, button or (for apps that read the IMU) movement for this long
 // blanks the screen and light-sleeps until the user comes back. While a
-// computer is connected over USB it only blanks the screen and stays awake
-// ("resting"), so the USB port stays up for the console and uploads.
+// computer is connected over USB it never sleeps: the screen dims to
+// USB_DIM_PCT of its brightness and the app keeps running.
 // A touch that starts this close to the right edge drags the volume slider.
 constexpr int16_t VOLUME_EDGE = Display::WIDTH - 80 * ui::SCALE;
 constexpr int16_t VOLUME_BAR_H = 120 * ui::SCALE;
 constexpr uint32_t VOLUME_OVERLAY_MS = 1500;
 constexpr int DEFAULT_VOLUME = 8;
 constexpr uint32_t IDLE_SLEEP_MS = 5 * 60 * 1000;
+constexpr uint8_t USB_DIM_PCT = 40;
 // A swipe that starts this close to the left edge means "go home".
 constexpr int16_t HOME_EDGE = Display::WIDTH * 0.15f;
 
@@ -31,10 +32,9 @@ App *pending = nullptr;
 bool switchPending = false;
 uint32_t lastFrameUs = 0;
 uint32_t lastActivityMs = 0;
-bool resting = false;  // idle on USB: screen off, awake
+bool dimmed = false;       // idle on USB: backlight down, still running
+uint8_t undimBrightness = 0;  // brightness to restore when input comes back
 bool forceSleep = false;  // "sleep" console command
-uint32_t restMotion0 = 0, restImuMs = 0;
-constexpr uint32_t REST_IMU_MS = 50;  // how often to read the IMU for movement while resting
 int volumeLevel = DEFAULT_VOLUME;
 uint32_t overlayUntilMs = 0;
 bool volumeTouch = false;  // the current touch belongs to the volume slider
@@ -222,7 +222,7 @@ void sleepNow() {
   board::sleepMark(board::SleepStage::Done);
 }
 
-// Throw away the touch or press that ended a sleep or rest: it isn't meant
+// Throw away the touch or press that ended a sleep: it isn't meant
 // for the app.
 void swallowWakingInput() {
   uint32_t t0 = millis();
@@ -239,36 +239,17 @@ void swallowWakingInput() {
   }
 }
 
-void startRest() {
-  Serial.println("[rest] idle on USB: screen off, staying awake");
-  active->sleep();
-  stopAudio();
-  board::display.sleep();
-  resting = true;
-  restMotion0 = board::imu.lastMotionMs();
+void dim() {
+  Serial.println("[dim] idle on USB: dimmed, staying awake");
+  undimBrightness = board::display.brightness();
+  board::display.setBrightness(undimBrightness * USB_DIM_PCT / 100);
+  dimmed = true;
 }
 
-void endRest() {
-  resting = false;
-  board::display.wake();
-  startAudio();
-  swallowWakingInput();
-  lastActivityMs = millis();
-  lastFrameUs = micros();
-  active->wake();
-  Serial.println("[rest] awake");
-}
-
-// One loop pass while resting. Returns true when it's time to wake.
-bool restPoll() {
-  board::buttons.poll();
-  board::touch.poll();
-  if (millis() - restImuMs >= REST_IMU_MS) {
-    restImuMs = millis();
-    Vec3 a;
-    board::imu.readAccel(a);  // updates lastMotionMs() on real movement
-  }
-  return anyInputDown() || board::imu.lastMotionMs() != restMotion0;
+void undim() {
+  dimmed = false;
+  board::display.setBrightness(undimBrightness);
+  Serial.println("[dim] restored");
 }
 
 }  // namespace
@@ -318,6 +299,12 @@ bool handleCommand(const char *line) {
     for (;;) {
     }
   }
+  if (strcmp(line, "power") == 0) {
+    Serial.printf("battery %u mV (%d %%), charging %d, usb host %d\n",
+                  (unsigned)board::batteryMillivolts(), board::batteryPercent(),
+                  board::charging(), board::usbHost());
+    return true;
+  }
   if (strcmp(line, "sleep") == 0) {
     forceSleep = true;
     return true;
@@ -343,16 +330,6 @@ void loop() {
   float dt = elapsed / 1e6f;
   if (dt > 0.05f) dt = 0.05f;  // don't let a stall fling things across the screen
 
-  if (resting) {
-    if (restPoll()) {
-      endRest();
-    } else if (!board::usbHost()) {
-      // Unplugged while resting: go to sleep properly.
-      endRest();
-      sleepNow();
-    }
-    return;
-  }
   handleButtons();
   handleTouch();
   if (forceSleep) {
@@ -361,12 +338,15 @@ void loop() {
     return;
   }
   if (idleTooLong()) {
-    if (board::usbHost()) {
-      startRest();
-    } else {
+    if (!board::usbHost()) {
+      // Also catches a computer unplugged while dimmed.
+      if (dimmed) undim();
       sleepNow();
+      return;
     }
-    return;
+    if (!dimmed) dim();
+  } else if (dimmed) {
+    undim();
   }
   net::poll(onNet, nullptr);
 

@@ -36,7 +36,8 @@ then upload again.
 
 ## Using it
 
-The board boots into a launcher that lists every app and game. Everything
+The board boots into a launcher that lists every app and game, with Tilepet
+selected. Everything
 works by touch; the buttons are a fallback for boards without a touchscreen.
 
 | Input | Launcher | Anywhere else |
@@ -54,8 +55,6 @@ Built in:
 
 | | |
 |---|---|
-| **Blank Game** (game) | Empty template with every input/network hook stubbed out. Copy it to start a new game. |
-| **PixelRoot Demo** (game) | A [PixelRoot32](https://github.com/PixelRoot32-Game-Engine/PixelRoot32-Game-Engine) engine scene. Tap or click to count. Start here for engine-based games. |
 | **Music** | Plays the audio files in the SD card root. Tap to pause, swipe left to skip, swipe up/down for volume. |
 | **Synth** | Monophonic synth. Touch the ring around the edge to play a note (C at the top, clockwise); slide to change notes. The middle has the controls: waveform, octave, detune, Moog-style filter cutoff / resonance / envelope, and release. |
 | **Tilepet** (game) | A tamagotchi-style pet in a gravity box: tilt the tile and it walks or climbs to the new floor, shake it and it gets dizzy, leave it flat and it falls asleep. Hatches, grows, needs care, plays three mini-games and dances to MP3s from `/music` on the SD card or to music it hears. See [docs/tilepet.md](docs/tilepet.md). |
@@ -73,7 +72,6 @@ src/core/
   AppManager.cpp          frame loop, reserved buttons, ESP-NOW routing
   Launcher.cpp            home screen
   Ui.h                    text helpers
-  PixelRootCompat.h       force-included fix so PixelRoot32 builds without its own display drivers
 src/games/                one file per game
 src/apps/                 one file per utility app
 lib/Net/                  ESP-NOW: peer discovery, per-app messages, tile kinds
@@ -221,36 +219,11 @@ note name) on the synth, then turn or press the control you want. The map is
 saved across reboots. See `lib/ControlsLink/src/ControlsLink.h` for the
 protocol.
 
-## PixelRoot32 games
-
-`src/games/pixelroot_demo.cpp` runs the PixelRoot32 engine as a normal app.
-It differs from the engine's own examples in three ways:
-
-- **Display:** the engine draws into our Arduino_GFX canvas through a custom
-  `DrawSurface` (`CanvasSurface`), not TFT_eSPI, which can't drive the
-  1.46B's QSPI panel. `-DPIXELROOT32_NO_TFT_ESPI` and `lib_ignore` keep
-  TFT_eSPI and U8g2 out of the build, and `src/core/PixelRootCompat.h` fills in
-  what the engine needs when neither driver is present.
-- **Loop:** on ESP32 `engine->run()` does one frame, so the app calls it from
-  `draw()` every frame. Don't call it once from `setup()` like the engine
-  README does.
-- **Input and audio:** input arrives through `onTouch`/`onButton` and is
-  handed to the scene, because the engine's GPIO buttons would clash with the
-  reserved BOOT long press. Engine audio is off (`-DPIXELROOT32_ENABLE_AUDIO=0`)
-  so it can't take the speaker's I2S pins. `-DPIXELROOT32_NO_I2S_AUDIO` is
-  also required: without it the engine links the legacy I2S driver, and the
-  firmware aborts at boot with "CONFLICT! The new i2s driver can't work along
-  with the legacy i2s driver".
-
-No `-std=gnu++17` flag is needed: Arduino-ESP32 3.x already builds with a
-newer standard.
-
 ## Libraries
 
 - [GFX Library for Arduino](https://github.com/moononournation/Arduino_GFX): SPD2010 and ST7789 drivers, canvas
 - [SensorLib](https://github.com/lewisxhe/SensorLib) v0.3.4: QMI8658 (PCF85063 RTC is in there too). It's pinned because 0.5 changes the API.
 - [ESP32-audioI2S](https://github.com/schreibfaul1/ESP32-audioI2S): MP3/AAC/FLAC/WAV decoding from SD or HTTP
-- [PixelRoot32 Game Engine](https://github.com/PixelRoot32-Game-Engine/PixelRoot32-Game-Engine): 2D game engine (scenes, sprites, tilemaps, physics), used by PixelRoot Demo
 - `ESP_I2S`, `SD_MMC`, `Wire`, ESP-NOW from Arduino-ESP32 3.3 (via [pioarduino](https://github.com/pioarduino/platform-espressif32))
 
 ## Things to know
@@ -267,9 +240,10 @@ newer standard.
 - **IMU axis mapping hasn't been tested on hardware.** If the ball rolls the
   wrong way, change `imu_axes` in `BoardConfig.h`.
 - **Idle sleep:** after 5 minutes without a touch, button or movement the
-  screen goes off. Plugged into a computer, the tile stays awake so its USB
-  serial port stays connected; on battery it light-sleeps. A button, a touch
-  or picking it up brings it back.
+  tile light-sleeps (screen off). Plugged into a computer it never sleeps: the
+  screen dims and the USB serial port stays connected. A wall charger counts
+  as battery (the tiles can't detect one). A button, a touch or picking it up
+  brings it back.
 - **Power latch:** `board::begin()` drives the hold pin high, so on battery
   the board stays on after you let go of PWR. Holding B for 3 s releases it.
 - **WiFi:** ESP-NOW keeps the radio in station mode on channel 1. Joining a

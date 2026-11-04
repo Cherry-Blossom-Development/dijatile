@@ -12,7 +12,17 @@ const char *Launcher::labelFor(int index) const {
   return index < (int)apps.size() ? apps[index]->name() : "Volume";
 }
 
+// Selected when the launcher first opens.
+static constexpr const char *DEFAULT_APP = "Tilepet";
+
 void Launcher::begin() {
+  if (selected_ < 0) {
+    const auto &apps = app_registry::all();
+    selected_ = 0;
+    for (size_t i = 0; i < apps.size(); i++) {
+      if (strcmp(apps[i]->name(), DEFAULT_APP) == 0) selected_ = i;
+    }
+  }
   if (selected_ >= count()) selected_ = 0;
 }
 

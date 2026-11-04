@@ -10,26 +10,38 @@ rest (launcher, volume edge, home swipe, ESP-NOW, the Controls link) is still to
 do. The hooks Tilepet added (`redraw`, `sleep`/`wake`, `onCommand`, the `app`
 console command) are described in `vitualpet.md` §3.3 for now.
 
-## 1. Idle: rest or sleep
+The launcher lists the registered apps (games first, then by name) and a
+Volume entry. When it first opens it selects `DEFAULT_APP` ("Tilepet",
+`Launcher.cpp`); after that it keeps the last selection.
+
+## 1. Idle: dim or sleep
 
 A display tile with no touch, button or movement for `IDLE_SLEEP_MS` (5 min)
-blanks its screen. What happens next depends on whether a computer is attached.
+goes idle. What happens next depends on whether a computer is attached.
 Movement only counts for apps that read the IMU (`board::imu.lastMotionMs()`),
 and apps with `exclusiveAudio()` (music) never go idle.
 
 - **A computer is connected** (`board::usbHost()`: the USB serial/JTAG port is
-  being polled by a host, `HWCDC::isPlugged()`; a plain charger doesn't count):
-  the tile **rests**. It calls the app's `sleep()`, stops audio, turns the
-  display off (`board::display.sleep()`), and keeps running, so the USB serial
-  port stays connected for the console and uploads, and ESP-NOW stays up.
-  - While resting, each loop pass polls buttons and touch and reads the IMU
-    every 50 ms; nothing is drawn and the app isn't updated.
-  - A button, a touch or real movement ends the rest: display on, audio
-    restarted, the waking input is swallowed (not passed to the app), then the
-    app's `wake()`. Logged as `[rest] awake`.
-  - If the computer goes away while resting, the tile wakes briefly and goes
-    straight into light sleep.
-- **Otherwise** (battery, or a charger only): **light sleep** as before
+  being polled by a host, `HWCDC::isPlugged()`): the tile **never sleeps**. It
+  dims the backlight to `USB_DIM_PCT` (40 %) of its brightness and carries on
+  as normal: the app keeps updating and drawing, audio and ESP-NOW stay up,
+  and the USB serial port stays connected for the console and uploads. Logged
+  as `[dim] idle on USB...`.
+  - The first touch, button or movement restores the brightness (`[dim]
+    restored`). That input goes to the app as usual; it is not swallowed,
+    since the screen was visible.
+  - If the computer goes away while dimmed, the brightness is restored and
+    the tile light-sleeps.
+  - Until 2026-11-03 the tile instead "rested": screen off, app paused. That
+    was dropped because a plugged-in tile should look awake.
+- **A charger only** (no computer) is treated as battery. The firmware can't
+  tell a charger from a battery: the ESP32-S3 has no VBUS sense, the 1.46B
+  has no charge-detect pin, and `BAT_ADC` reads the battery itself (measured
+  2026-11-03 on a Mac's USB: 4044 mV on the 1.46B, 4098 mV on the 1.54, the
+  same range as on battery). The 1.54's `CHARGING` pin read 0 at 94 % on
+  USB, so it isn't usable as "plugged in" either. Never sleeping on a charger
+  needs a VBUS divider wired to a free GPIO.
+- **Otherwise** (battery or a charger): **light sleep** as before
   (`board::lightSleep()`): app `sleep()`, audio and ESP-NOW stopped, the chip
   light-sleeps until a button, a touch or movement, the USB port disappears
   meanwhile. On waking the waking input is swallowed and the app gets `wake()`.
@@ -96,9 +108,11 @@ and apps with `exclusiveAudio()` (music) never go idle.
     (`STOPPED at ...` if it never got to `done` or `powered off`), the reset
     reason, and the counters. Starting a new sleep clears it.
 - Console: `sleep` light-sleeps at once, as if idle on battery (the USB port
-  goes away until it wakes); `sleep trace` prints the trace; `wdt test` hangs
+  goes away until it wakes); `sleep trace` prints the trace; `power` prints
+  the battery voltage (`board::batteryMillivolts()`), percent, charge pin and
+  `usbHost()`; `wdt test` hangs
   the loop on purpose, and the watchdog should reset the tile within 10 s.
 
 Apps see the same `sleep()` / `wake()` pair either way. An app that calls
 `app_manager::noteActivity()` every frame never goes idle; Tilepet does that
-while a computer is connected, so its screen stays on (it dims itself).
+while a computer is connected, so the system never dims it (it dims itself).

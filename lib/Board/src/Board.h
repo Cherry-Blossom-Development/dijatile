@@ -45,6 +45,8 @@ bool begin();
 
 // Battery charge 0..100, or -1 if no battery reading makes sense (USB only).
 int batteryPercent();
+// Voltage on the battery input in mV (after undoing the divider).
+uint32_t batteryMillivolts();
 // 1 charging, 0 not, -1 unknown (the 1.46B has no charge detect).
 int charging();
 // A computer is connected over USB (it is polling the chip's USB serial port).

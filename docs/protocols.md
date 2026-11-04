@@ -73,7 +73,6 @@ immediately.
 |---|---|---|---|---|
 | Nearby | 1 | `MSG_PING` | broadcast | `{u8 pad}`. Receivers beep and flash in the sender's colour. |
 | Tilt Ball | 1 | `MSG_POS` | broadcast, every 50 ms | `{u16 x, u16 y}`: ball position normalised to 0..65535, so screens of any size agree. A ghost is dropped after 1 s without an update. |
-| Blank Game | 1 | `MSG_EXAMPLE` | template | none, just a stub |
 | Tilt Theremin | 1 | `MSG_PAIR_REQUEST` | main → pitch tile | `{u8}` empty |
 | | 2 | `MSG_PAIR_REPLY` | pitch tile → main | `{u8 accept}` |
 | | 3 | `MSG_TILT` | pitch tile → main, ~60 Hz | `{i16 tilt}`: -1000..1000, tilt as a fraction of the 45° span |

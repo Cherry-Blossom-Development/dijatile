@@ -769,10 +769,10 @@ Leave a registry so more games can be added (ideas for later: Balance — keep a
 - Pet awake, user interacting: brightness setting, 30 fps.
 - No input for `DIM_AFTER_S` (2 min) on the pet screen (pet awake, no music or dancing): dim to 40 % of the setting, 15 fps.
 - Pet asleep (on its own or "lights off"): backlight `SLEEP_DIM_PCT` (4 %), just enough to see it, 5 fps. Face down: off. A key or touch lights it at 10 % for 5 s.
-- **On a computer's USB** (`PetHost::usbHost()`, see `app-framework.md` §1) Tilepet calls `keepAwake()` every tick, so the system never rests or sleeps and the screen stays on (dimmed as above); only the status bar hides after 5 idle minutes. On battery or a charger, the system's 5-minute light sleep still applies.
+- **On a computer's USB** (`PetHost::usbHost()`, see `app-framework.md` §1) Tilepet calls `keepAwake()` every tick, so the system's own USB dimming never applies and the pet's dimming above is used; only the status bar hides after 5 idle minutes. On battery or a charger, the system's 5-minute light sleep still applies.
 - Backlight off: 1 fps.
 - `wantsFrame()` implements these rates; the host returns it from `App::redraw()`, so skipped frames cost no draw or flush.
-- **System sleep (as built):** no deep sleep. After 5 idle minutes the app manager light-sleeps as it does for every app (wake on button, touch or motion), or, while a computer is connected over USB, only blanks the screen and rests awake (`app-framework.md` §1). Tilepet calls `keepAwake()` while music plays or it is listening, gets `sleep()` (save, stop music and mic) before and `wake()` after, and treats the time away as sleep (§10.4).
+- **System sleep (as built):** no deep sleep. After 5 idle minutes the app manager light-sleeps as it does for every app (wake on button, touch or motion), or, while a computer is connected over USB, never sleeps (`app-framework.md` §1). Tilepet calls `keepAwake()` while music plays or it is listening, gets `sleep()` (save, stop music and mic) before and `wake()` after, and treats the time away as sleep (§10.4).
 - Later: a deep sleep with QMI8658 wake-on-motion and a timer for morning or attention calls.
 - Battery (polled every 10 s): < 15 % the battery icon pulses; < 5 % and not charging: save once and show a "charge me" screen at 30 % backlight, which closes when charging starts or the level recovers.
 - While charging (1.54 only, the 1.46B can't tell): a "+" next to the battery icon. Later: a charging animation (the pet plugs itself in).

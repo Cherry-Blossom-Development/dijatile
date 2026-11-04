@@ -23,5 +23,5 @@ class Launcher : public App {
   bool onVolume() const;
   const char *labelFor(int index) const;
 
-  int selected_ = 0;
+  int selected_ = -1;  // -1 until begin() picks DEFAULT_APP
 };
