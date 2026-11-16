@@ -78,6 +78,12 @@ immediately.
 | | 3 | `MSG_TILT` | pitch tile → main, ~60 Hz | `{i16 tilt}`: -1000..1000, tilt as a fraction of the 45° span |
 | | 4 | `MSG_STATE` | main → pitch tile, ~15 Hz | `{u8 volume, u16 freqDeciHz, u8 scaleId, u8 rangeDecis}` |
 | | 5 | `MSG_UNPAIR` | either | `{u8}` empty |
+| Tilepet | 1 | `HELLO` | broadcast, every 2 s | `{char name[12], u8 stage, u8 flags}`. `stage` 0 egg .. 5 elder. Flags: bit 0 available to play, bit 1 aquatic, bit 2 in a game of catch. |
+| | 2 | `INVITE` | unicast | `{u8 passes}`: play catch; the game lasts this many passes (6–12) |
+| | 3 | `ACCEPT` | unicast | `{u8}` 0 |
+| | 4 | `DECLINE` | unicast | `{u8 reason}`: 0 busy, 1 asleep, 2 unwell (sick or tired), 3 already playing, 4 too little (egg or baby) |
+| | 5 | `BALL` | unicast | `{u8 yours, u8 pass, u8 final}`: the ball flew over. `yours` 1 = it's the receiver's own ball coming back. `pass` = passes so far, counting this one. `final` 1 = last pass, the game is over. |
+| | 6 | `BYE` | unicast | `{u8 reason}`: 0 done (enough passes), 1 left (no longer available, or the ball stayed away 15 s) |
 
 **Tilt Theremin pairing.** Opening the app with another tile already in it
 prompts the user. The tile that asks (and is confirmed by the other tile's user)
@@ -85,6 +91,27 @@ becomes **main**: it makes the sound and its tilt sets only volume. The other is
 **pitch tile**: silent, it sends its tilt and shows the main tile's state. A
 request waits 5 s for a reply; either side drops the pairing after 1.5 s of
 silence (main watches `MSG_TILT`, the pitch tile watches `MSG_STATE`); a tile that is already paired declines further requests.
+
+**Tilepet friends** (spec `vitualpet.md` §6.8, code `lib/Pet/src/PetFriends.cpp`,
+structs in `lib/Pet/src/FriendProto.h`). Friends are tiles heard sending `HELLO` in
+the last 6 s (up to 4 remembered). Ids are MACs; lib/Pet reaches ESP-NOW only
+through `PetHost::netSend` / `PetApp::netReceive`.
+
+- **Invite:** by menu, or automatically when both pets have been available for 15 s
+  and 10 min have passed since the last game; only the tile with the **lower MAC**
+  invites automatically. No reply within 3 s: give up. A tile in a game declines
+  with reason 3. Two invites crossing: the higher MAC accepts the other's.
+- **Game:** the inviter serves its own ball. Each kick that sends the ball off the
+  top of the screen sends `BALL` to the friend, which drops it in from the top of
+  its own screen. The receiver adopts `pass`. When the pass count reaches the
+  target (or 120 s have passed) on arrival, the receiver ends the game: its own ball
+  is kept and it sends `BYE` 0; the friend's ball is kicked home with `final` 1.
+- **Ending early:** `BYE` 1 when a pet stops being available or the ball has been
+  away 15 s; no message when the friend is simply gone (6 s without `HELLO`).
+- **Ball bookkeeping:** after a game a guest ball is sent home (`BALL` yours 1,
+  final 1). A guest ball arriving outside a game is returned at once. An own ball
+  that hasn't come back 15 s after the game (or whose friend is gone) reappears by
+  itself, and a later `BALL` yours 1 for it is ignored.
 
 ## 4. Controls link (Display tile ↔ Controls tile; `lib/ControlsLink`)
 

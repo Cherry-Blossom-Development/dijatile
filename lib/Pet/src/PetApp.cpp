@@ -68,6 +68,8 @@ void PetApp::onResume() {
 
 void PetApp::onSuspend() {
   if (!begun_ || suspended_) return;
+  endCatch(false, true);
+  ownAway_ = false;  // a fresh ball appears on resume; the old one stays with the friend
   brain_.stopListen();
   if (music_.playing || music_.paused) host_->musicStop();
   musicWanted_ = false;
@@ -90,7 +92,7 @@ void PetApp::ensureProps() {
     Vec2 p = w.onFloor(f, w.alongAt(0.18f), 3);
     w.addProp(PropKind::Bowl, p.x, p.y, 3);
   }
-  if (core_.life.stage >= Stage::Child && !w.findProp(PropKind::Ball)) {
+  if (core_.life.stage >= Stage::Child && !ownAway_ && !w.findProp(PropKind::Ball)) {
     Vec2 p = w.onFloor(f, w.alongAt(0.79f), 3);
     w.addProp(PropKind::Ball, p.x, p.y, 3);
   }
@@ -414,6 +416,7 @@ void PetApp::tick() {
   WorldEvents we =
       core_.world.step(dt, Vec2(m.fx, m.fy), core_.floorSel.floor(), brain_.asleep(), brain_.canCling());
   brain_.worldEvents(we);
+  friendTick(now);
   bakeIfNeeded();
   if (core_.life.stage >= Stage::Child) ensureProps();
 
@@ -459,7 +462,7 @@ void PetApp::tick() {
   core_.micBeat.setBlank(touchDown_ || buttonsDown_ || m.fastRms > 0.08f);
   // On a computer's USB the screen stays on (no system rest): the pet shows,
   // and the status bar hides after a while (statusBarShown()).
-  if (core_.musicPlaying || brain_.micOn() || host_->usbHost()) host_->keepAwake();
+  if (core_.musicPlaying || brain_.micOn() || host_->usbHost() || catch_ != CatchState::Off) host_->keepAwake();
 }
 
 bool PetApp::wantsFrame() {
@@ -711,6 +714,24 @@ bool PetApp::command(const char *line) {
       else brain_.forceEvolve();
       return true;
     }
+    if (strcmp(w1, "name") == 0) {
+      if (w2[0]) strncpy(c.name, w2, NAME_LEN - 1);
+      else nameFromSeed(c.genome.seed, c.name, NAME_LEN);  // the default name
+      c.name[NAME_LEN - 1] = 0;
+      c.saveNow = true;
+      return true;
+    }
+    if (strcmp(w1, "gen") == 0) {
+      c.generation = (uint16_t)atoi(w2);
+      if (c.generation <= 1) {
+        // A first generation has no parent and nobody in the memorial.
+        c.generation = 1;
+        c.parentSeed = 0;
+        c.memorialCount = 0;
+      }
+      c.saveNow = true;
+      return true;
+    }
     if (strcmp(w1, "type") == 0) {
       if (!strcmp(w2, "land")) c.settings.petType = PetType::Land;
       else if (!strcmp(w2, "water")) c.settings.petType = PetType::Water;
@@ -756,9 +777,11 @@ bool PetApp::command(const char *line) {
     if (strcmp(w1, "sleep") == 0) { brain_.forceSleep(); return true; }
     if (strcmp(w1, "wake") == 0) { brain_.forceWake(); return true; }
     if (strcmp(w1, "save") == 0) { writeSave(); return true; }
-    c.logf("pet: status set stage sick poop hatch type reset reroll timescale genome gene sleep wake save");
+    c.logf("pet: status set stage sick poop hatch name gen type reset reroll timescale genome gene sleep wake save");
     return true;
   }
+
+  if (strcmp(w0, "friend") == 0) return friendCommand(w1);
 
   if (strcmp(w0, "imu") == 0) {
     bool on = strcmp(w2, "off") != 0;

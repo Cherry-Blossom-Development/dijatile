@@ -66,6 +66,11 @@ struct Body {
 
 enum class PropKind : uint8_t { None, Bowl, Poop, Meal, Snack, Ball, Medicine, Bug, Fruit, Rock };
 
+// Playing catch with a friend's tile (spec 6.8): a ball flies Out through the
+// ceiling (no walls, no gravity) or drops In from above the room (gravity, no
+// walls until it is inside), then becomes an ordinary prop.
+enum class Flight : uint8_t { None, In, Out };
+
 struct Prop {
   PropKind kind = PropKind::None;
   float x = 0, y = 0, vx = 0, vy = 0;
@@ -75,6 +80,9 @@ struct Prop {
   float age = 0;
   float poopTimer = 0;          // time spent in the room (poop)
   PropKind food = PropKind::None;  // bowl: Meal or Snack waiting in it
+  Flight flight = Flight::None;
+  bool inPlay = false;  // the ball of a game of catch
+  bool guest = false;   // belongs to the friend's tile
 };
 
 struct WorldEvents {
@@ -83,6 +91,8 @@ struct WorldEvents {
   bool poopHit = false;  // a falling poop landed on the pet
   bool reachedFloor = false;
   bool surfaceChanged = false;  // bowl: the pet moved round onto another quarter
+  bool ballOut = false;         // a ball flew out of the room (catch)
+  bool ballOutGuest = false;    // ...and it was the friend's
 };
 
 struct Arena {
@@ -140,7 +150,13 @@ class World {
   const Prop *props() const { return props_; }
   // `half` is the prop art's half-size; the world scales it by petScale.
   Prop *addProp(PropKind kind, float x, float y, float half);
+  // The first prop of this kind; guest balls (a friend's) are skipped.
   Prop *findProp(PropKind kind);
+  Prop *findInPlay();
+  // Catch: send a ball out through the ceiling at `vel`, or drop one in from
+  // `pos` (outside the room) at `vel`. dropIn returns nullptr if full.
+  void launchOut(Prop &p, Vec2 vel);
+  Prop *dropIn(PropKind kind, Vec2 pos, Vec2 vel, float half);
   int countProps(PropKind kind) const;
   void removeProps(PropKind kind);
   // Centre of something standing on floor f at `along`, `height` in from it
@@ -161,6 +177,7 @@ class World {
   void stepProp(Prop &p, float dt, Vec2 g, Floor floor, WorldEvents &ev);
   void stepBodyRound(float dt, Vec2 g, Floor floor, bool asleep, bool grip, WorldEvents &ev);
   void stepPropRound(Prop &p, float dt, Vec2 g, Floor floor, WorldEvents &ev);
+  void stepFlight(Prop &p, float dt, Vec2 g, Floor floor, WorldEvents &ev);
   void clampToBox(float &x, float &y, float half) const;
   void checkPoopHit(const Prop &p, WorldEvents &ev);
   // Bowl helpers.

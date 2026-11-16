@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "Art.h"
@@ -581,7 +582,11 @@ struct FakeHost : PetHost {
   uint32_t millis() override { return clock; }
   bool wallClock(int64_t &) override { return false; }
   uint32_t random32() override { return seed = seed * 1664525u + 1013904223u; }
-  void log(const char *) override {}
+  std::string logs;
+  void log(const char *l) override {
+    logs += l;
+    logs += '\n';
+  }
   bool loadNvs(SaveData &o) override { if (hasNvs) o = nvs; return hasNvs; }
   bool saveNvs(const SaveData &s) override { nvs = s; hasNvs = true; return true; }
   bool loadSd(SaveData &o) override { if (hasSd) o = sd; return hasSd; }
@@ -605,6 +610,20 @@ struct FakeHost : PetHost {
   void musicSetQuiet(bool) override {}
   bool micStart() override { return false; }
   void micStop() override {}
+  // friends: messages wait in the outbox until the test delivers them
+  struct Packet {
+    uint64_t to;
+    uint8_t type;
+    std::vector<uint8_t> data;
+  };
+  uint64_t id = 0;
+  std::vector<Packet> outbox;
+  uint64_t selfId() override { return id; }
+  bool netSend(uint64_t to, uint8_t type, const void *data, size_t len) override {
+    const uint8_t *p = (const uint8_t *)data;
+    outbox.push_back({to, type, std::vector<uint8_t>(p, p + len)});
+    return true;
+  }
 };
 }  // namespace
 
@@ -740,6 +759,115 @@ void test_pet_type_setting() {
   app.command("pet stage child");
   app.command("pet type water");  // a hatched pet keeps its habitat
   TEST_ASSERT_FALSE(app.core().genome.aquatic);
+}
+
+// ---- friends: catch across two tiles (spec 6.8)
+
+namespace {
+struct Tile {
+  FakeHost host;
+  PetApp app;
+};
+
+void deliver(Tile &from, Tile &to, bool link) {
+  for (const FakeHost::Packet &p : from.host.outbox) {
+    if (link && (p.to == 0 || p.to == to.host.id)) to.app.netReceive(from.host.id, p.type, p.data.data(), p.data.size());
+  }
+  from.host.outbox.clear();
+}
+
+// Run both tiles for `ms`, upright (keeps the pets awake), passing messages
+// while `link` is on. Stops early when `until` says so.
+void runPair(Tile &a, Tile &b, int ms, bool link = true, std::function<bool()> until = nullptr) {
+  for (int t = 0; t < ms; t += 15) {
+    for (Tile *x : {&a, &b}) {
+      for (int k = 0; k < 3; k++) {
+        x->host.clock += 5;
+        x->app.pushImu({x->host.clock, 0, 1, 0, 0, 0, 0});
+      }
+      x->app.tick();
+    }
+    deliver(a, b, link);
+    deliver(b, a, link);
+    if (until && until()) return;
+  }
+}
+
+void startPair(Tile &a, Tile &b) {
+  a.host.id = 0x111111111111ull;
+  b.host.id = 0x222222222222ull;
+  a.host.seed = 5;
+  b.host.seed = 9;
+  for (Tile *x : {&a, &b}) {
+    x->app.begin(&x->host);
+    x->app.onResume();
+    x->app.command("pet stage adult");
+    x->app.command("pet set energy 100");
+    x->app.command("pet set happy 50");
+  }
+}
+
+bool has(const Tile &t, const char *s) { return t.host.logs.find(s) != std::string::npos; }
+
+int balls(const Tile &t, bool guest) {
+  int n = 0;
+  for (int i = 0; i < World::MAX_PROPS; i++) {
+    const Prop &p = t.app.core().world.props()[i];
+    n += p.kind == PropKind::Ball && p.guest == guest;
+  }
+  return n;
+}
+}  // namespace
+
+void test_friends_play_catch() {
+  static Tile a, b;
+  startPair(a, b);
+  runPair(a, b, 3000);
+  TEST_ASSERT_TRUE(has(a, "PET friend ") && has(b, "PET friend "));  // greeted each other
+  a.app.command("friend play");
+  runPair(a, b, 200 * 1000, true, [&] { return has(a, "PET catch over") && has(b, "PET catch over"); });
+  TEST_ASSERT_TRUE(has(a, "catching") || has(a, "serving"));
+  TEST_ASSERT_TRUE(has(a, "PET catch over (done)"));
+  TEST_ASSERT_TRUE(has(b, "PET catch over (done)"));
+  // The game ran its course: CATCH_PASSES_MIN or more passes, the same count on both.
+  const char *tag = "PET catch over (done), ";
+  int pa = atoi(a.host.logs.c_str() + a.host.logs.find(tag) + strlen(tag));
+  int pb = atoi(b.host.logs.c_str() + b.host.logs.find(tag) + strlen(tag));
+  TEST_ASSERT_GREATER_OR_EQUAL(tune::CATCH_PASSES_MIN, pa);
+  TEST_ASSERT_LESS_OR_EQUAL(tune::CATCH_PASSES_MAX, pa);  // the kick home isn't counted
+  TEST_ASSERT_EQUAL(pa, pb);
+  TEST_ASSERT_TRUE(a.app.core().life.happy > 50);
+  runPair(a, b, 3000);
+  // Both balls are home again, one in each room.
+  for (Tile *x : {&a, &b}) {
+    TEST_ASSERT_EQUAL(1, balls(*x, false));
+    TEST_ASSERT_EQUAL(0, balls(*x, true));
+  }
+}
+
+void test_friends_start_by_themselves() {
+  static Tile a, b;
+  startPair(a, b);
+  // Only the lower id asks, after both were free for FRIEND_NOTICE_S.
+  runPair(a, b, 40 * 1000, true, [&] { return has(b, "PET catch with"); });
+  TEST_ASSERT_TRUE(has(a, "PET friend invite") && has(a, "(auto)"));
+  TEST_ASSERT_FALSE(has(b, "PET friend invite"));
+  TEST_ASSERT_TRUE(has(b, "PET catch with"));
+}
+
+void test_friend_leaving_ends_the_game() {
+  static Tile a, b;
+  startPair(a, b);
+  runPair(a, b, 3000);
+  a.app.command("friend play");
+  // Play until A's ball is over on B's tile, then cut the link.
+  runPair(a, b, 30 * 1000, true, [&] { return has(a, "PET catch with") && balls(a, false) == 0; });
+  TEST_ASSERT_EQUAL(0, balls(a, false));
+  runPair(a, b, 20 * 1000, false);
+  TEST_ASSERT_TRUE(has(a, "PET catch over (left)"));
+  TEST_ASSERT_TRUE(has(b, "PET catch over (left)"));
+  runPair(a, b, 3000, false);
+  TEST_ASSERT_EQUAL(1, balls(a, false));  // came home by itself
 }
 
 void test_screen_on_usb_and_asleep() {
@@ -1098,6 +1226,9 @@ int main(int, char **) {
   RUN_TEST(test_aquatic_genes);
   RUN_TEST(test_water_swim_and_sink);
   RUN_TEST(test_pet_type_setting);
+  RUN_TEST(test_friends_play_catch);
+  RUN_TEST(test_friends_start_by_themselves);
+  RUN_TEST(test_friend_leaving_ends_the_game);
   RUN_TEST(test_stats_decay_and_catchup_cap);
   RUN_TEST(test_life_stages_and_demeanour);
   RUN_TEST(test_life_end_of_life_modes);

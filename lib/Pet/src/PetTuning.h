@@ -206,5 +206,21 @@ constexpr float STROKE_MIN_PX = 14.0f;
 constexpr float STROKE_MAX_PX_S = 160.0f;
 constexpr float PET_HAPPY_PER_MIN = 6.0f;  // cap on happiness from petting
 
+// ---------------------------------------------------------------- friends: catch across tiles (6.8)
+constexpr uint32_t FRIEND_HELLO_MS = 2000;     // HELLO broadcast period
+constexpr uint32_t FRIEND_TIMEOUT_MS = 6000;   // a friend not heard this long is gone
+constexpr float FRIEND_REGREET_S = 300;        // greet again after the friend was away this long
+constexpr float FRIEND_NOTICE_S = 15;          // both available this long before an automatic game
+constexpr float FRIEND_COOLDOWN_S = 600;       // between automatic games
+constexpr uint32_t FRIEND_INVITE_MS = 3000;    // no answer to an invite: give up
+constexpr int CATCH_PASSES_MIN = 6, CATCH_PASSES_MAX = 12;  // a game ends after this many passes
+constexpr float CATCH_MAX_S = 120;             // ...or this long
+constexpr float CATCH_AWAY_S = 15;             // ball on the friend's side this long: the game is over
+constexpr float CATCH_REACH_S = 10;            // can't reach the ball in this long: it flies off by itself
+constexpr float CATCH_THROW_PER_S = 2.0f;      // kick speed, room sizes per second
+constexpr float CATCH_DROP_PER_S = 0.6f;       // speed a ball drops in at, room sizes per second
+constexpr float CATCH_HAPPY_PER_PASS = 0.8f, CATCH_HAPPY_MAX = 8;
+constexpr float CATCH_ENERGY_PER_PASS = 0.3f;
+
 }  // namespace tune
 }  // namespace pet

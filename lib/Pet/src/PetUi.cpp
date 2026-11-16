@@ -111,7 +111,7 @@ void PetApp::activateMenu(int item) {
 int PetApp::listCount() const {
   switch (list_) {
     case ListId::Feed: return 2;
-    case ListId::Play: return gameCount();
+    case ListId::Play: return gameCount() + 1;  // Friend, then the mini-games
     case ListId::Music: return 2;
     case ListId::Tracks: return music_.tracks > 0 ? music_.tracks : 0;
     case ListId::Settings: return 9;
@@ -143,7 +143,15 @@ void PetApp::listLabel(int i, char *label, char *value, bool &enabled) const {
       snprintf(value, V, i == 0 ? "+40" : "+15");
       break;
     case ListId::Play:
-      snprintf(label, L, "%s", game(i)->name());
+      if (i == 0) {
+        // Catch with a friend's tile (spec 6.8).
+        const Friend *f = friendNear();
+        snprintf(label, L, "FRIEND");
+        snprintf(value, V, "%s", f ? f->name : "NONE NEAR");
+        enabled = f != nullptr;
+      } else {
+        snprintf(label, L, "%s", game(i - 1)->name());
+      }
       break;
     case ListId::Music:
       snprintf(label, L, i == 0 ? "SD PLAYER" : "LISTEN & DANCE");
@@ -205,8 +213,14 @@ void PetApp::activateList(int i) {
         closeToPet();
         core_.sfx.play(Sfx::Refuse);
         core_.say(why);
+      } else if (i == 0) {
+        closeToPet();
+        const Friend *f = friendNear();
+        if (!f) say("NO FRIEND NEAR");
+        else if (catch_ != CatchState::Off) say("ALREADY PLAYING");
+        else invite(*f, true);
       } else {
-        startGame(i);
+        startGame(i - 1);
       }
       break;
     }

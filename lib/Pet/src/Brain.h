@@ -15,6 +15,8 @@ enum class Act : uint8_t {
   Flinch, Tickled, Annoyed, BackAway, Approach, Nauseous, Scared, Medicine, Listening, Dancing,
   GoEat,  // walking to the bowl to eat what's in it
   Swim,   // aquatic: swimming round the water
+  Catch,     // playing catch: going for the ball to kick it back up (spec 6.8)
+  WaitBall,  // playing catch: the ball is on the friend's tile
   Count
 };
 const char *actName(Act a);
@@ -53,6 +55,20 @@ class Brain {
   ListenState listenState() const { return listen_; }
   bool micOn() const { return listen_ != ListenState::Off; }
   bool canPlay(const char *&why) const;
+
+  // ---- playing catch with a friend's tile (spec 6.8); PetApp does the talking
+  void friendHello(const char *name);
+  // A game starts. `serve`: this pet kicks its own ball over first.
+  void catchStart(const char *name, bool serve);
+  // `done`: it ended normally (celebrate), else the friend left (wave bye).
+  // A friend's ball still in the room flies home.
+  void catchEnd(bool done, int passes, const char *name);
+  bool catchOn() const { return catchOn_; }
+  // A ball drops in from above: the friend's (guest) or this pet's own coming
+  // home. During a game it is the ball in play.
+  void ballIn(bool guest);
+  // A ball flew out through the ceiling since the last call.
+  bool takeBallOut(bool &guest);
   void gamePlayed(bool won, float happy, float energy);
 
   // ---- debug
@@ -118,6 +134,7 @@ class Brain {
   void goEat();
   void startEating();
   Vec2 up() const;
+  float throwSpeed() const;
   Vec2 headPos() const;
 
   PetCore *c_ = nullptr;
@@ -195,6 +212,10 @@ class Brain {
   float zzzT_ = 0;
   float bugT_ = 0;
   float hue_ = 0;
+
+  // catch
+  bool catchOn_ = false;
+  bool ballOut_ = false, ballOutGuest_ = false;
 };
 
 }  // namespace pet

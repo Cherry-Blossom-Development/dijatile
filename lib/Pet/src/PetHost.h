@@ -69,6 +69,12 @@ class PetHost {
   // ---- microphone capture into PetApp::micBeat()
   virtual bool micStart() = 0;
   virtual void micStop() = 0;
+
+  // ---- friends: other tiles running Tilepet (spec 6.8). Ids are the tile's
+  // MAC in the low 48 bits, never 0. netSend(0, ...) broadcasts. Incoming
+  // messages go to PetApp::netReceive().
+  virtual uint64_t selfId() { return 0; }
+  virtual bool netSend(uint64_t, uint8_t, const void *, size_t) { return false; }
 };
 
 }  // namespace pet

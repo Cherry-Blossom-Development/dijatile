@@ -304,6 +304,23 @@ class Tilepet : public App, public pet::PetHost {
   void keepAwake() override { app_manager::noteActivity(); }
   bool usbHost() override { return board::usbHost(); }
 
+  // ---- friends: Tilepet on other tiles, over ESP-NOW (spec 6.8). Ids are
+  // the MAC; lib/Pet never sees lib/Net.
+  static uint64_t macId(const uint8_t *m) {
+    uint64_t v = 0;
+    for (int i = 0; i < 6; i++) v = (v << 8) | m[i];
+    return v;
+  }
+  uint64_t selfId() override { return macId(net::myMac()); }
+  bool netSend(uint64_t to, uint8_t type, const void *data, size_t len) override {
+    if (!net::started()) return false;
+    if (!to) return net::broadcast(netId(), type, data, len);
+    uint8_t mac[6];
+    for (int i = 5; i >= 0; i--, to >>= 8) mac[i] = (uint8_t)to;
+    return net::send(mac, netId(), type, data, len);
+  }
+  void onMessage(const net::Message &msg) override { pet_.netReceive(macId(msg.from), msg.type, msg.data, msg.len); }
+
   int volume() override { return app_manager::volume(); }
 
   void setVolume(int level) override {

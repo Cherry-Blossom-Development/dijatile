@@ -69,12 +69,29 @@ default). It applies to every new egg, and switches the current egg if it
 hasn't hatched yet; a hatched pet stays what it is. Reset the pet to start
 over with the type you picked.
 
+## Friends
+
+Two tiles running Tilepet near each other (within ESP-NOW range, no pairing)
+are friends. When a friend turns up, the pet waves and says hi. Every 10
+minutes or so, when both pets are awake, well and on their home screen, they
+play **catch across the tiles**: one pet kicks its ball up off the top of the
+screen, it drops in from the top of the other screen, and that pet runs over
+and kicks it back. A game is 6 to 12 passes. A good catch gets a "NICE!", and
+at the end both pets celebrate and are a little happier and a little more
+tired.
+
+Start a game yourself with **Play → Friend**, which shows the friend's name.
+If the other pet can't play, yours tells you why (asleep, busy, unwell, too
+little). Opening the menu, picking the pet up or it falling asleep ends the
+game, and the ball goes home. Pets must be at least children to play, and a
+tile that has gone to sleep isn't around.
+
 ## Menu
 
 | Item | |
 |---|---|
 | Feed | Meal or snack. The food goes in the bowl and the pet walks over to eat it. A full pet refuses meals. A sick pet only takes medicine. Snacks when full cost health. |
-| Play | Tilt Catch (tilt to catch fruit, avoid rocks and poop, 30 s), Which Way? (guess where it will look, 5 rounds), Copycat (repeat the tone sequence). A tired or sick pet refuses. |
+| Play | Friend (catch with a friend's tile, see above), Tilt Catch (tilt to catch fruit, avoid rocks and poop, 30 s), Which Way? (guess where it will look, 5 rounds), Copycat (repeat the tone sequence). A tired or sick pet refuses. |
 | Clean | Removes every poop. When very dirty it becomes a bath. |
 | Lights | Puts the pet to sleep if its energy is below 70, or wakes it. |
 | Medicine | Only when sick. Takes one or two doses. |
@@ -126,6 +143,9 @@ pet set <stat> <value>        hunger happy energy clean health weight
 pet stage <name>              egg baby child teen adult elder
 pet sick | pet poop | pet hatch (also: grow to the next stage)
 pet type surprise|land|water  habitat of new eggs (and of the current egg)
+pet name [<name>]             rename; no name: back to the default name
+pet gen <n>                   set the generation (1 also clears parent and memorial)
+friend [play|stop]            friends in range and the game; invite one; end the game
 pet reset                     new egg, memorial cleared
 pet reroll [hexseed]          new egg with a random or given genome
 pet timescale <x>             speeds up life (600 = 10 game hours per minute)
@@ -164,8 +184,9 @@ The microphone's latency is `MIC_LATENCY_MS` in `PetTuning.h`.
 | `Scene` | Drawing the room |
 | `Games` | Mini-games |
 | `PetUi.cpp` | Screens |
+| `PetFriends.cpp`, `FriendProto.h` | Friends over ESP-NOW and catch across tiles (spec 6.8, `docs/protocols.md` §3) |
 | `SaveData` | The save format |
-| `src/games/tilepet.cpp` | The Dijatile host: IMU task, input mapping, 2× canvas blit, audio, mic task, saves, backlight, battery |
+| `src/games/tilepet.cpp` | The Dijatile host: IMU task, input mapping, 2× canvas blit, audio, mic task, saves, backlight, battery, ESP-NOW for friends |
 | `test/test_pet/` | `pio test -e native -f test_pet` |
 | `tools/sprites.py` | Aseprite export to a C header |
 

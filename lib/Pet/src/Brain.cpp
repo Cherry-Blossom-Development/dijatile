@@ -16,13 +16,13 @@ const char *actName(Act a) {
                             "hum", "wave", "sillyfall", "pointbowl", "lookpoop", "shiver", "eating", "pooping",
                             "sleeping", "yawning", "celebrate", "refusing", "flinch", "tickled", "annoyed",
                             "backaway", "approach", "nauseous", "scared", "medicine", "listening", "dancing",
-                            "goeat", "swim"};
+                            "goeat", "swim", "catch", "waitball"};
   return (int)a < (int)Act::Count ? n[(int)a] : "?";
 }
 
 static bool isWalkAct(Act a) {
   return a == Act::Wander || a == Act::PlayBall || a == Act::ChaseBug || a == Act::PointBowl ||
-         a == Act::LookPoop || a == Act::BackAway || a == Act::Approach || a == Act::GoEat;
+         a == Act::LookPoop || a == Act::BackAway || a == Act::Approach || a == Act::GoEat || a == Act::Catch;
 }
 
 void Brain::reset(PetCore &c) {
@@ -337,6 +337,10 @@ void Brain::worldEvents(const WorldEvents &ev) {
       react(Expr::Surprised, 0.8f);
     }
     if (asleep_) wake(Wake::Landing);
+  }
+  if (ev.ballOut) {
+    ballOut_ = true;
+    ballOutGuest_ = ev.ballOutGuest;
   }
   if (ev.poopHit && c_->life.stage != Stage::Egg) {
     c_->lifeSim.addHappy(c_->life, -3);
@@ -722,6 +726,78 @@ bool Brain::canPlay(const char *&why) const {
   return true;
 }
 
+// ============================================================ catch
+
+float Brain::throwSpeed() const { return c_->world.arena().size * CATCH_THROW_PER_S; }
+
+void Brain::friendHello(const char *name) {
+  if (asleep_ || seq_ != Seq::None || c_->life.stage == Stage::Egg || micOn()) return;
+  if (act_ != Act::Idle && act_ != Act::Sit && act_ != Act::LookAround && act_ != Act::Wander) return;
+  setAct(Act::Wave, 2);
+  lookY_ = -1;
+  lookT_ = 1.5f;
+  char line[24];
+  snprintf(line, sizeof(line), "HI %s!", name);
+  c_->say(line);
+  babble(Voice::Happy, 2);
+}
+
+void Brain::catchStart(const char *name, bool serve) {
+  catchOn_ = true;
+  ballOut_ = false;
+  if (serve) {
+    Prop *ball = c_->world.findProp(PropKind::Ball);
+    if (ball) ball->inPlay = true;
+  }
+  setAct(Act::Wave, 1.2f);
+  react(Expr::Happy, 2);
+  char line[24];
+  snprintf(line, sizeof(line), "CATCH, %s!", name);
+  c_->say(line);
+  babble(Voice::Happy, 3);
+}
+
+void Brain::catchEnd(bool done, int passes, const char *name) {
+  catchOn_ = false;
+  for (Prop *p = c_->world.props(); p < c_->world.props() + World::MAX_PROPS; p++) {
+    if (p->kind == PropKind::None) continue;
+    if (p->guest && p->flight != Flight::Out) c_->world.launchOut(*p, up() * throwSpeed());  // home it goes
+    p->inPlay = false;
+  }
+  if (asleep_) return;
+  char line[24];
+  if (done) {
+    setAct(Act::Celebrate, 1.5f);
+    react(Expr::Happy, 2.5f);
+    snprintf(line, sizeof(line), "%d PASSES!", passes);
+    babble(Voice::Happy, 3);
+  } else {
+    setAct(Act::Wave, 1.5f);
+    snprintf(line, sizeof(line), "BYE %s!", name);
+    babble(Voice::Neutral, 2);
+  }
+  c_->say(line);
+}
+
+void Brain::ballIn(bool guest) {
+  World &w = c_->world;
+  float s = (float)w.arena().size, m = s * 0.5f;
+  Vec2 u = up(), r = floorRight(w.body().surface);
+  Vec2 pos = Vec2(m, m) + u * (m + 8.0f * w.arena().petScale) + r * (c_->rng.range(-0.3f, 0.3f) * s);
+  Prop *p = w.dropIn(PropKind::Ball, pos, u * (-s * CATCH_DROP_PER_S), 3);
+  if (!p) return;
+  p->guest = guest;
+  p->inPlay = catchOn_;
+  if (catchOn_ && !asleep_ && seq_ == Seq::None) setAct(Act::Catch);
+}
+
+bool Brain::takeBallOut(bool &guest) {
+  if (!ballOut_) return false;
+  ballOut_ = false;
+  guest = ballOutGuest_;
+  return true;
+}
+
 void Brain::gamePlayed(bool won, float happy, float energy) {
   c_->lifeSim.played(c_->life, happy * (0.6f + 0.8f * c_->genome.playful), energy);
   react(won ? Expr::Happy : Expr::Sad, 2);
@@ -1078,8 +1154,50 @@ void Brain::updateAct(float dt) {
 
   switch (act_) {
     case Act::Idle:
-      if (idleT_ <= 0 && grounded) chooseIdle();
+      if (catchOn_) setAct(c.world.findInPlay() ? Act::Catch : Act::WaitBall);
+      else if (idleT_ <= 0 && grounded) chooseIdle();
       break;
+    case Act::WaitBall:
+      lookY_ = -1;
+      lookT_ = 0.3f;
+      if (!catchOn_) setAct(Act::Idle);
+      else if (c.world.findInPlay()) setAct(Act::Catch);
+      break;
+    case Act::Catch: {
+      Prop *ball = c.world.findInPlay();
+      if (!ball) {
+        setAct(Act::Idle);
+        break;
+      }
+      if (ball->flight == Flight::Out) break;  // on its way
+      Vec2 bp(ball->x, ball->y), u = up();
+      lookY_ = (bp - headPos()).dot(u) > 4 ? -1 : 0;
+      lookT_ = 0.3f;
+      if (actT_ > CATCH_REACH_S) {
+        // Can't get to it (the tile is tilted, or it's stuck): off it goes.
+        c.world.launchOut(*ball, u * throwSpeed());
+        setAct(Act::Refusing, 1.0f);
+        break;
+      }
+      if (ball->flight == Flight::In) {
+        walkTo(c.world.alongOf(b.surface, bp), speed(RUN_PX_S));
+        break;
+      }
+      if ((bp - b.pos()).len() < b.half * 0.9f + ball->half + 3 && grounded) {
+        bool caught = !ball->resting;  // got it before it came to rest
+        Vec2 r = floorRight(b.surface);
+        c.world.launchOut(*ball, (u + r * c.rng.range(-0.15f, 0.15f)) * throwSpeed());
+        setAct(Act::Kick, 0.45f);
+        c.sfx.play(Sfx::Chirp, 0.8f);
+        if (caught) {
+          react(Expr::Happy, 1.2f);
+          c.say("NICE!", 1.2f);
+        }
+      } else {
+        walkTo(c.world.alongOf(b.surface, bp), speed(RUN_PX_S));
+      }
+      break;
+    }
     case Act::Dancing:
     case Act::Listening:
     case Act::Sleeping:
@@ -1377,6 +1495,8 @@ void Brain::updateFace(float dt) {
             case Act::Sit: case Act::Hum: a = Anim::Sit; break;
             case Act::Scratch: a = Anim::Shiver; frame = (int)(actT_ * 5) % 2; break;
             case Act::Kick: a = Anim::Kick; break;
+            case Act::Catch: a = Anim::Play; break;
+            case Act::WaitBall: a = Anim::FootTap; break;
             case Act::Wave: a = Anim::Wave; break;
             case Act::SillyFall: a = actT_ < 1.0f ? Anim::Tumble : Anim::Land; break;
             case Act::PointBowl: a = Anim::Point; break;

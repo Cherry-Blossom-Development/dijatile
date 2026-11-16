@@ -34,6 +34,8 @@ class PetApp {
   bool command(const char *line);
   // Save right away (power button held, before sleeping).
   void saveNow();
+  // A message from a friend's tile (game thread). `from` is its PetHost id.
+  void netReceive(uint64_t from, uint8_t type, const void *data, size_t len);
 
   // ---- other tasks
   void pushImu(const ImuSample &s);
@@ -72,6 +74,30 @@ class PetApp {
   void updatePower();
   void updateMusic();
   void updateTime();
+
+  // friends: catch across tiles (PetFriends.cpp, spec 6.8)
+  struct Friend {
+    uint64_t id = 0;
+    char name[NAME_LEN] = {0};
+    uint8_t stage = 0, flags = 0;
+    uint32_t firstMs = 0, lastMs = 0, greetedMs = 0;
+  };
+  enum class CatchState : uint8_t { Off, Inviting, On };
+  void friendTick(uint32_t now);
+  bool friendAvailable() const;
+  uint8_t declineReason() const;
+  bool friendPresent(const Friend &f, uint32_t now) const;
+  Friend *findFriend(uint64_t id);
+  const Friend *friendNear() const;  // the best friend to invite, nullptr if none in range
+  void invite(const Friend &f, bool manual);
+  void startCatch(uint64_t id, const char *name, uint8_t target, bool serve);
+  void endCatch(bool done, bool tellFriend);
+  void ballFlewOut(bool guest);
+  template <typename T>
+  void netSend(uint64_t to, uint8_t type, const T &m) {
+    host_->netSend(to, type, &m, sizeof(T));
+  }
+  bool friendCommand(const char *w1);
 
   // UI
   void openScreen(Screen s);
@@ -180,6 +206,19 @@ class PetApp {
 
   // farewell
   float farewellT_ = 0;
+
+  // friends
+  static constexpr int MAX_FRIENDS = 4;
+  Friend friends_[MAX_FRIENDS];
+  CatchState catch_ = CatchState::Off;
+  uint64_t mate_ = 0;  // who we play (or played last) with
+  char mateName_[NAME_LEN] = {0};
+  bool manualInvite_ = false;
+  uint32_t helloMs_ = 0, inviteMs_ = 0, catchStartMs_ = 0, ballAwayMs_ = 0, lastCatchMs_ = 0, availSinceMs_ = 0;
+  uint8_t passes_ = 0, target_ = 0;
+  bool ballOver_ = false;   // the ball in play is on the friend's tile
+  bool ownAway_ = false;    // our own ball is on the friend's tile
+  bool endOnKick_ = false;  // the next kick sends the friend's ball home and ends the game
 
   // baked sprite key
   Stage bakedStage_ = Stage::Count;

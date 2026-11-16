@@ -86,6 +86,9 @@ class PetHost {                         // lib/Pet/src/PetHost.h
   virtual void musicSetQuiet(bool quiet) = 0;      // pet asleep: play quietly
   // microphone capture into PetApp::micBeat() (§9.5)
   virtual bool micStart() = 0;  virtual void micStop() = 0;
+  // friends over ESP-NOW (§6.8): this tile's id (MAC), send (to 0 = broadcast)
+  virtual uint64_t selfId() { return 0; }
+  virtual bool netSend(uint64_t to, uint8_t type, const void *data, size_t len) { return false; }
 };
 
 class PetApp {                          // lib/Pet/src/PetApp.h
@@ -99,6 +102,7 @@ class PetApp {                          // lib/Pet/src/PetApp.h
   void render(Canvas &);                // the logical canvas (§7.1), size from host->arena()
   bool command(const char *line);       // debug console (§13); false if not a Tilepet command
   void saveNow();
+  void netReceive(uint64_t from, uint8_t type, const void *data, size_t len);  // a friend's message (§6.8)
   // from other tasks
   void pushImu(const ImuSample &);      // IMU task, lock-free SPSC queue (64 samples)
   SfxSynth &sfx();                      // audio task calls render()
@@ -111,7 +115,7 @@ class PetApp {                          // lib/Pet/src/PetApp.h
 - `ImuSample` = accel (g) and gyro (dps) already mapped to screen axes (+x right, +y down, +z out of the screen, so z ≈ +1 face up), plus a timestamp.
 - `InputEvent` = kind (`Key, TouchDown, TouchMove, TouchUp, Tap, LongPress, Swipe`), `Key` (`Next, Select, Back, SelectLong`), position and swipe start, in logical pixels.
 - **No hardware access inside `lib/Pet`.** No `Wire`, SPI, GPIO or Arduino headers. It builds and runs under `pio test -e native`.
-- Later Dijatile hooks to leave room for (don't implement): the pet walking off an edge onto a neighbouring tile over ESP-NOW, two pets visiting each other.
+- Later Dijatile hooks to leave room for (don't implement): the pet walking off an edge onto a neighbouring tile over ESP-NOW, two pets visiting each other. (Catch across tiles is built: §6.8.)
 
 ### 3.2 Threads
 
@@ -298,6 +302,38 @@ An aquatic pet's room is underwater (§8.7), and it behaves like any other pet o
 - **Bubbles:** every `BUBBLE_MIN_S`–`BUBBLE_MAX_S` (0.8–2.5 s) a bubble (sometimes a string of three) rises from a random spot on the floor; a swimming pet lets one out every 1–2.5 s and a sleeping one every 2.5–4 s, from its head. Bubbles rise against gravity at 10–18 px/s, wobbling side to side, and vanish after crossing the room.
 - **The "bug" is a fish:** the chase-a-bug idle chases a little orange fish instead.
 - **Animation:** `swim` while swimming and while drifting down (an aquatic pet doesn't tumble); asleep it sinks curled up.
+
+### 6.8 Friends: catch across tiles (ESP-NOW)
+
+Two tiles running Tilepet in ESP-NOW range are **friends**. The pets greet each other and now and then play **catch across the tiles**: a pet kicks the ball up off the top of its screen, the ball drops in from the top of the friend's screen, and the friend's pet runs to it and kicks it back. Each pet stays in its own room; only the ball travels. (Chosen 2026-11-16 over pets visiting each other's tile, which stays a later idea, §14.) Code: `lib/Pet/src/PetFriends.cpp` (messages, the game), `Brain` (`Catch`, `WaitBall`, `catchStart/End`, `ballIn`), `World` (ball flight). Messages: `FriendProto.h` and `docs/protocols.md` §3.
+
+**Transport.** `lib/Pet` never sees ESP-NOW: `PetHost::selfId()` (this tile's MAC as a 48-bit number) and `PetHost::netSend(to, type, data, len)` (`to == 0` broadcasts) go out, and the host passes Tilepet's app messages to `PetApp::netReceive(from, ...)`. On Dijatile that's `src/games/tilepet.cpp` over `lib/Net` under Tilepet's app id, so only tiles running Tilepet hear each other.
+
+**Who's around.** Every `FRIEND_HELLO_MS` (2 s) each tile broadcasts `HELLO`: name, stage and flags (available, aquatic, playing). Up to 4 friends are remembered; one not heard for `FRIEND_TIMEOUT_MS` (6 s) is gone.
+- A pet is **available** when it's on the pet screen (no menu, list or game open), Child or older, awake, well enough to play (`canPlay`: not sick, energy ≥ 15), not in a hatch/evolve/farewell sequence, not listening or dancing to the mic, no SD music playing, and not being held by a finger.
+- **Greeting:** when a friend turns up (first heard, or back after being gone) and this pet is available and idle-ish (idle, sitting, looking around, wandering), it waves, looks up and says `HI <NAME>!` with a happy babble. At most once per `FRIEND_REGREET_S` (5 min) per friend.
+
+**Starting a game.**
+- **By themselves:** when this pet has been available for `FRIEND_NOTICE_S` (15 s), a friend has been around that long and says it's available and not playing, and `FRIEND_COOLDOWN_S` (10 min) have passed since this pet's last game (or invite), the tile with the **lower id** invites. Only one side asks, so they never invite each other at once.
+- **From the menu:** **Play → Friend** (the first Play entry; it shows the friend's name, or `NONE NEAR` dimmed) invites the best friend in range (available and not playing first, then the one heard most recently), with no cooldown. The menu closes first. No friend: `NO FRIEND NEAR`; already in a game: `ALREADY PLAYING`.
+- `INVITE` carries the length of the game, `CATCH_PASSES_MIN`–`CATCH_PASSES_MAX` (6–12) passes, rolled by the inviter. The friend answers `ACCEPT` if available, else `DECLINE` with a reason, shown only for a menu invite: `<NAME> IS BUSY / IS ASLEEP / ISN'T WELL / IS PLAYING / IS TOO LITTLE`. No answer within `FRIEND_INVITE_MS` (3 s): `NO ANSWER` (menu invites only). A tile already in a game declines (`IS PLAYING`). Two menu invites crossing: the tile with the higher id gives way and accepts the other's.
+- Both pets wave, say `CATCH, <NAME>!` and babble. The inviter **serves**: its own ball becomes the ball in play.
+
+**Playing.**
+- **The ball in play** (`Prop::inPlay`) is the one the pets go for. Waiting while it's on the other tile, a pet foot-taps and looks up (`Act::WaitBall`); normal idle choices stop for the game.
+- **Kicking it over** (`Act::Catch`): the pet runs (`RUN_PX_S`) to the ball and, once it touches it (`ball–body distance < 0.9 × half + ball half + 3`) while standing, kicks it straight up, away from its floor, with a little sideways spread (±15 %), at `CATCH_THROW_PER_S` (2) room sizes per second (`Anim::Kick`, a chirp). If it got there before the ball came to rest, it's a catch: happy face and `NICE!`. A ball it can't reach within `CATCH_REACH_S` (10 s) (tile tilted, ball stuck) flies off by itself and the pet shrugs.
+- **Flight** (`Prop::flight`, `World::launchOut / dropIn`): an `Out` ball moves in a straight line with no gravity and no walls; once it is wholly off the canvas it is removed and the world reports `ballOut` (and whether it was a guest ball). `PetApp` then sends `BALL` to the friend. An `In` ball starts just beyond the room on the side opposite the pet's floor (above its head, at a random spot ±30 % of the room across), moving toward the floor at `CATCH_DROP_PER_S` (0.6) room sizes per second, with gravity (and water drag in an aquatic room) but no walls, and becomes an ordinary prop once wholly inside the room (or after 4 s, put in the middle, in case the tile turned meanwhile). Both arenas work the same; on the round tile the ball enters and leaves through the circle.
+- **Whose ball:** the inviter's ball is the one that travels. On the friend's tile it is a **guest** ball (`Prop::guest`): `findProp()` skips guest balls, so the room's own ball and its normal ball play are unaffected, and `ensureProps()` doesn't replace a ball that is away (`ownAway_`). `BALL.yours` tells the receiver whether the ball is its own coming back.
+- **Counting:** each kick over is a pass, except the final kick that sends the friend's ball home; the sender numbers it (`BALL.pass`) and the receiver takes that count, so both agree.
+
+**Ending.**
+- **Done:** a game ends after its pass count or `CATCH_MAX_S` (2 min), checked when the ball arrives. If it's the receiver's own ball, it keeps it and sends `BYE` (done); if it's the friend's, its pet kicks it home with `final` set. Both pets celebrate and say `<N> PASSES!`. Each gains happiness `CATCH_HAPPY_PER_PASS` (0.8) per pass up to `CATCH_HAPPY_MAX` (8) and loses `CATCH_ENERGY_PER_PASS` (0.3) energy per pass.
+- **Left:** a pet that stops being available (menu opened, fell asleep, picked up, music...) sends `BYE` (left), and so does one whose ball has been on the other side for `CATCH_AWAY_S` (15 s). A friend not heard for 6 s ends the game without a message. Both pets wave and say `BYE <NAME>!`.
+- **Balls go home:** when a game ends, a guest ball in the room flies home (it is kicked up and sent as `BALL` with `yours` and `final` set). A ball that arrives when no game is on is sent straight back if it's the friend's, and lands if it's this tile's own. If this tile's ball is still away `CATCH_AWAY_S` after the game, or the friend is gone, it drops back in by itself. A ball coming home that this tile already gave up on is ignored, so a room never gets two.
+- Leaving the app or the system sleeping ends a game (`BYE` left) and forgets an away ball: a fresh one appears on resume.
+- The tile stays awake (`keepAwake`) while inviting or playing. A tile asleep (light sleep after 5 idle minutes on battery) has ESP-NOW off and simply isn't around, so pets play while people are near.
+
+**Debug:** `friend` lists this tile's id, the game state (passes so far / target, where the ball is, whether the own ball is away) and each friend (id, name, stage, flags, last heard); `friend play` invites like the menu; `friend stop` ends a game (`BYE` left). Log lines: `PET friend <name> here`, `PET friend invite <name> (menu|auto)`, `PET catch with <name>, <n> passes, serving|receiving`, `PET catch over (done|left), <n> passes`, `PET friend <name> gone`.
 
 ---
 
@@ -624,7 +660,7 @@ Setting **Life mode** (default **Gentle**):
 
 - Save the pet state (genome, stats, stage, age, care counters, demeanour, settings, timestamps, lineage, memorial) as one struct (`SaveData.h`: magic, `version`, size, a sequence number, CRC32) to **NVS** (namespace `tilepet`, key `save`). Write on any change, debounced to at most once per 60 s, and at once on stage change, before the system sleeps, when the app closes, and when PWR has been held 1.5 s (likely power-off).
 - Mirror it to `/pet/save.bin` on SD when a card is mounted (written to `/pet/save.tmp`, then renamed). On load, the valid copy with the higher sequence number wins.
-- **No migrations** (project rule: tiles are reflashed together). A save whose version, size or genome version differs is invalid (`GENOME_VERSION` 2 added aquatic pets, so older pets restarted as eggs). An invalid or corrupt NVS save falls back to the SD copy, then to a new egg (never crash).
+- **No migrations** (project rule: tiles are reflashed together). A save whose version, size or genome version differs is invalid (`GENOME_VERSION` 2 added aquatic pets, so older pets restarted as eggs). An invalid or corrupt NVS save falls back to the SD copy, then to a new egg (never crash). **Any change to `SaveData`'s fields bumps `SAVE_VERSION`**, even when the size stays the same: the same size doesn't mean the same layout. (2026-11-03, adding `Settings::petType` without a bump kept the size but moved every later field by one byte, so older saves loaded with the name missing its first letter and a garbled generation, parent and memorial. The two pets were repaired with `pet name` and `pet gen 1`.)
 - Saves are written from the game thread.
 
 ### 10.6 Genome: traits fixed at conception
@@ -743,7 +779,7 @@ A 3×3 icon grid (pixel icons drawn at 2×) that slides in over the dimmed room 
 | Item | Action |
 |---|---|
 | **Feed** | Sub-menu: Meal / Snack. The food goes **in the bowl** (drawn heaped over its rim) and the pet walks over and eats it standing beside the bowl, facing it. It refuses meals when full, and refuses when asleep or sick (sick pets only accept medicine). If the walk is interrupted (a turn, being picked up), the food waits in the bowl and the pet goes back for it at its next idle choice. If the bowl is on another surface, or the pet hasn't arrived after `GO_EAT_MAX_S` (10 s), it eats where it is. With no bowl at all, the food appears in front of the pet as before. The food isn't saved: food left in the bowl at a reboot is gone. |
-| **Play** | Mini-games (§11.3). |
+| **Play** | **Friend** (catch with a friend's tile, §6.8; shows the friend's name or `NONE NEAR`), then the mini-games (§11.3). |
 | **Clean** | Wipe animation, removes all poop, +Clean. A bath variant if Clean < 30. |
 | **Lights** | Sleep now (§6.2) / wake. |
 | **Medicine** | Only enabled when sick. |
@@ -794,6 +830,9 @@ pet set <stat> <value>        hunger happy energy clean health weight
 pet stage <name>              egg baby child teen adult elder
 pet sick | pet poop | pet hatch (also: grow to the next stage)
 pet type surprise|land|water  habitat of new eggs (and of the current egg)
+pet name [<name>]             rename; no name: back to the default name from the seed
+pet gen <n>                   set the generation; 1 also clears the parent and the memorial
+friend [play|stop]            friends in range and the catch game; invite the best one; end the game (§6.8)
 pet reset                     new egg, memorial cleared
 pet reroll [hexseed]          new egg with a random or given genome
 pet timescale <x>             multiplies life-cycle time (600 = 10 game hours per minute)
@@ -817,6 +856,7 @@ Host unit tests (`test/test_pet`, Unity, `pio test -e native -f test_pet`) cover
 - floor selection hysteresis and the fast-turn flag; clinging, climbing and falling; tilt drift and sliding props;
 - the round bowl: along/rim-angle round trip, following a slow turn, a sleeper sliding round, a flip, props staying in and settling, the double-size pet;
 - aquatic pets: about one in five, features always matching the habitat, inheritance; swimming to a point, sinking slowly and landing softly in both arenas, a soft flip; the whole app: an aquatic pet swims and bubbles rise;
+- friends (§6.8), two `PetApp`s wired through fake hosts: they greet each other; a menu invite plays a whole game (at least `CATCH_PASSES_MIN` passes, the same count on both) and leaves one ball in each room; the lower id starts a game by itself; cutting the link mid-game ends it on both sides and the away ball drops back home;
 - stat decay and the catch-up cap, stages and demeanour, both end-of-life modes, poop and feeding;
 - save CRC and versioning, and power-cycle restore with fallback to the SD copy;
 - the whole app: feeding puts the meal in the bowl and the pet walks over and eats beside it; a hungry pet says so on its own;
@@ -829,7 +869,7 @@ Host unit tests (`test/test_pet`, Unity, `pio test -e native -f test_pet`) cover
 ## 14. Out of scope for v1 (keep room)
 
 - Other mic uses beyond Listen & dance: pet reacts to a clap, or to being talked to (babbles back). The mic capture path from §9.5 is the input hook.
-- BLE / ESP-NOW pet visits between tiles; walking off an edge onto a neighbouring tile.
+- Pets visiting each other's tile over ESP-NOW (catch across tiles is built, §6.8); walking off an edge onto a neighbouring tile.
 - Wi-Fi beyond NTP.
 - A bigger pixel scale on the round 1.46B (it runs at 2×, with the round bowl filling the circle).
 
@@ -841,6 +881,7 @@ All in one header, `lib/Pet/src/PetTuning.h` (namespace `pet::tune`). The header
 
 Motion: `GRAV_LP_TAU_S, GRAV_INNOVATION_G, FAST_GRAV_TAU_S, FLAT_TILT_DEG, FLAT_STILL_RMS_G, FLAT_STILL_GYRO_DPS, FLAT_HOLD_S, FACEDOWN_DEG, UPRIGHT_DEG, PICKUP_RMS_G, SHAKE_RMS_G, SHAKE_REVERSAL_G, SHAKE_REVERSALS, SPIN_DPS, FREEFALL_G, FREEFALL_MS, TAP_JERK_G`
 Sleep: `DROWSY_AFTER_S, SLEEP_AFTER_S, FACEDOWN_SLEEP_S, MIN_NAP_S, CRANKY_S`
+Friends (§6.8): `FRIEND_HELLO_MS, FRIEND_TIMEOUT_MS, FRIEND_REGREET_S, FRIEND_NOTICE_S, FRIEND_COOLDOWN_S, FRIEND_INVITE_MS, CATCH_PASSES_MIN, CATCH_PASSES_MAX, CATCH_MAX_S, CATCH_AWAY_S, CATCH_REACH_S, CATCH_THROW_PER_S, CATCH_DROP_PER_S, CATCH_HAPPY_PER_PASS, CATCH_HAPPY_MAX, CATCH_ENERGY_PER_PASS`
 Water: `WATER_GRAVITY, WATER_DRAG, WATER_PROP_DRAG, SWIM_ACCEL, SWIM_ARRIVE_PX, SWIM_SPEED_MUL, SWIM_MAX_S, BUBBLE_MIN_S, BUBBLE_MAX_S, BUBBLE_RISE_MIN, BUBBLE_RISE_MAX` (`AQUATIC_CHANCE` is in `PetGenes.h`)
 Physics: `G_SCALE_PX_S2, TERMINAL_V, RESTITUTION, SLIDE_G, TUMBLE_G, PROP_FRICTION_G, BOWL_PROP_FRICTION_G, FLOOR_SWITCH_G, FLOOR_SWITCH_DEG, FLOOR_SWITCH_MS, FAST_ROTATE_DEG, FAST_ROTATE_MS, HARD_LANDING_V`
 Life: stat rates per hour, `FULL_HUNGER`, stage durations, poop interval, sickness chances, catch-up cap, attention threshold

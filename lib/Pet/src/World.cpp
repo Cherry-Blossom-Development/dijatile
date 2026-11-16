@@ -360,7 +360,9 @@ WorldEvents World::step(float dt, Vec2 g, Floor floor, bool asleep, bool canGrip
     }
     for (Prop &p : props_) {
       if (p.kind == PropKind::None) continue;
-      if (arena_.round) {
+      if (p.flight != Flight::None) {
+        stepFlight(p, h, g, floor, ev);
+      } else if (arena_.round) {
         stepPropRound(p, h, g, floor, ev);
       } else {
         stepProp(p, h, g, floor, ev);
@@ -804,9 +806,81 @@ Prop *World::addProp(PropKind kind, float x, float y, float half) {
 
 Prop *World::findProp(PropKind kind) {
   for (Prop &p : props_) {
-    if (p.kind == kind) return &p;
+    if (p.kind == kind && !p.guest) return &p;
   }
   return nullptr;
+}
+
+Prop *World::findInPlay() {
+  for (Prop &p : props_) {
+    if (p.kind != PropKind::None && p.inPlay) return &p;
+  }
+  return nullptr;
+}
+
+void World::launchOut(Prop &p, Vec2 vel) {
+  p.flight = Flight::Out;
+  p.resting = false;
+  p.vx = vel.x;
+  p.vy = vel.y;
+}
+
+Prop *World::dropIn(PropKind kind, Vec2 pos, Vec2 vel, float half) {
+  for (Prop &p : props_) {
+    if (p.kind == PropKind::None) {
+      p = Prop();
+      p.kind = kind;
+      p.half = half * arena_.petScale;
+      p.x = pos.x;
+      p.y = pos.y;
+      p.vx = vel.x;
+      p.vy = vel.y;
+      p.flight = Flight::In;
+      return &p;
+    }
+  }
+  return nullptr;
+}
+
+void World::stepFlight(Prop &p, float dt, Vec2 gRaw, Floor floor, WorldEvents &ev) {
+  using namespace tune;
+  p.age += dt;
+  if (p.flight == Flight::In) {
+    Vec2 G = gravity(gRaw, floor);
+    p.vx += G.x * G_SCALE_PX_S2 * dt;
+    p.vy += G.y * G_SCALE_PX_S2 * dt;
+    if (water_) {
+      float k = expf(-WATER_PROP_DRAG * dt);
+      p.vx *= k;
+      p.vy *= k;
+    }
+  }
+  p.x += p.vx * dt;
+  p.y += p.vy * dt;
+  if (p.flight == Flight::Out) {
+    float m = p.half + 2, s = (float)arena_.size;
+    if (p.x < -m || p.y < -m || p.x > s + m || p.y > s + m) {
+      ev.ballOut = true;
+      ev.ballOutGuest = p.guest;
+      p = Prop();
+    }
+    return;
+  }
+  // In: an ordinary prop once wholly inside the room.
+  bool inside;
+  if (arena_.round) {
+    float dx = p.x - mid(), dy = p.y - mid();
+    inside = sqrtf(dx * dx + dy * dy) < rimR_ - p.half - 1;
+  } else {
+    float lo = lo_ + p.half + 1, hi = hi_ - p.half - 1;
+    inside = p.x > lo && p.x < hi && p.y > lo && p.y < hi;
+  }
+  if (!inside && p.age > 4) {
+    // Never made it in (the tile turned meanwhile): put it in the middle.
+    p.x = p.y = mid();
+    inside = true;
+  }
+  if (inside) p.flight = Flight::None;
 }
 
 int World::countProps(PropKind kind) const {
