@@ -63,7 +63,11 @@ Its room is underwater, with sand, swaying seaweed and bubbles drifting up. It
 walks and eats on the bottom like any pet, and now and then swims off round the
 water before sinking back down. Falls in water are slow and soft, so a flip
 just lets it drift across. Children of an aquatic pet are usually aquatic too.
-To try one: `pet gene aquatic 1` on the console.
+
+To choose, set **Settings → Pet type** to Land or Water (Surprise is the
+default). It applies to every new egg, and switches the current egg if it
+hasn't hatched yet; a hatched pet stays what it is. Reset the pet to start
+over with the type you picked.
 
 ## Menu
 
@@ -76,7 +80,7 @@ To try one: `pet gene aquatic 1` on the console.
 | Medicine | Only when sick. Takes one or two doses. |
 | Music | SD player, or Listen & dance |
 | Status | Four pages: stats, about (age, weight, form, traits, rarity stars), care history, memorial. |
-| Settings | Volume, sound effects, life mode (gentle or classic), a new random name, brightness, auto-listen, reset pet (asks twice). Select **About Tilepet** five times for the debug menu. |
+| Settings | Volume, sound effects, life mode (gentle or classic), a new random name, brightness, auto-listen, pet type (surprise, land or water), reset pet (asks twice). Select **About Tilepet** five times for the debug menu. |
 
 The debug menu has the gallery (nine random pets at a chosen stage, cycling
 every animation at all four rotations), the IMU and beat overlays, the time
@@ -121,6 +125,7 @@ pet loop                      main-loop gap since the last call: average and wor
 pet set <stat> <value>        hunger happy energy clean health weight
 pet stage <name>              egg baby child teen adult elder
 pet sick | pet poop | pet hatch (also: grow to the next stage)
+pet type surprise|land|water  habitat of new eggs (and of the current egg)
 pet reset                     new egg, memorial cleared
 pet reroll [hexseed]          new egg with a random or given genome
 pet timescale <x>             speeds up life (600 = 10 game hours per minute)

@@ -429,6 +429,7 @@ void Brain::touchMove(float x, float y, float dt) {
         Vec2 h = headPos();
         c_->spawn(PK_HEART, h.x, h.y, up().x * 10, up().y * 10, 1.0f);
         if (!asleep_) {
+          stopListen();  // handling it ends Listen & dance, so the purr is heard
           react(Expr::Love, 1.5f);
           if (purrT_ <= 0) {
             c_->sfx.play(Sfx::Purr);
@@ -543,6 +544,7 @@ void Brain::tap(float x, float y) {
       wake(Wake::Poke);
       return;
     }
+    stopListen();  // handling it ends Listen & dance, so the laugh is heard
     setAct(Act::Tickled, 2);
     react(Expr::Laughing, 2);
     c_->sfx.play(Sfx::Laugh);
@@ -553,7 +555,9 @@ void Brain::tap(float x, float y) {
   }
   if (doubleTapAt_ && (int32_t)(now - (doubleTapAt_ - DOUBLE_TAP_MS)) < (int32_t)DOUBLE_TAP_MS) {
     doubleTapAt_ = 0;  // a third tap: not a double tap
-  } else if (taps_[4] && now - taps_[4] < DOUBLE_TAP_MS) {
+  } else if (taps_[4] && now - taps_[4] < DOUBLE_TAP_MS &&
+             (!taps_[3] || taps_[4] - taps_[3] > TICKLE_WINDOW_MS)) {
+    // Only an isolated pair: the tail of a slow tickle isn't a double tap.
     doubleTapAt_ = now + DOUBLE_TAP_MS;
   }
 

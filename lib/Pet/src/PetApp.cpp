@@ -121,6 +121,7 @@ void PetApp::newPet(bool inherit, uint32_t seed) {
     core_.parentSeed = 0;
   }
   core_.lifeSim.start(core_.genome, core_.life);
+  applyPetType();
   nameFromSeed(seed, core_.name, NAME_LEN);
   core_.world.reset(spriteBox(Stage::Egg) / 2.0f);
   core_.world.standOn(core_.floorSel.floor(), core_.world.mid());
@@ -130,6 +131,17 @@ void PetApp::newPet(bool inherit, uint32_t seed) {
   bakeIfNeeded(true);
   core_.saveNow = true;
   core_.logf("PET new egg seed=%08lx gen=%u name=%s", (unsigned long)seed, core_.generation, core_.name);
+}
+
+void PetApp::applyPetType() {
+  PetType t = core_.settings.petType;
+  if (t == PetType::Surprise || core_.life.stage != Stage::Egg) return;
+  bool water = t == PetType::Water;
+  if (core_.genome.aquatic == water) return;
+  setHabitat(core_.genome, water);
+  bakeIfNeeded(true);
+  core_.saveNow = true;
+  core_.logf("PET type %s", water ? "water" : "land");
 }
 
 void PetApp::load() {
@@ -152,6 +164,7 @@ void PetApp::applySave(const SaveData &s) {
   core_.genome = s.genome;
   core_.life = s.life;
   core_.settings = s.settings;
+  if ((uint8_t)core_.settings.petType > (uint8_t)PetType::Water) core_.settings.petType = PetType::Surprise;
   memcpy(core_.name, s.name, NAME_LEN);
   core_.name[NAME_LEN - 1] = 0;
   core_.generation = s.generation;
@@ -698,6 +711,15 @@ bool PetApp::command(const char *line) {
       else brain_.forceEvolve();
       return true;
     }
+    if (strcmp(w1, "type") == 0) {
+      if (!strcmp(w2, "land")) c.settings.petType = PetType::Land;
+      else if (!strcmp(w2, "water")) c.settings.petType = PetType::Water;
+      else if (!strcmp(w2, "surprise")) c.settings.petType = PetType::Surprise;
+      else c.logf("pet type surprise|land|water");
+      applyPetType();
+      c.dirty = true;
+      return true;
+    }
     if (strcmp(w1, "reset") == 0) {
       c.memorialCount = 0;
       newPet(false);
@@ -734,7 +756,7 @@ bool PetApp::command(const char *line) {
     if (strcmp(w1, "sleep") == 0) { brain_.forceSleep(); return true; }
     if (strcmp(w1, "wake") == 0) { brain_.forceWake(); return true; }
     if (strcmp(w1, "save") == 0) { writeSave(); return true; }
-    c.logf("pet: status set stage sick poop hatch reset reroll timescale genome gene sleep wake save");
+    c.logf("pet: status set stage sick poop hatch type reset reroll timescale genome gene sleep wake save");
     return true;
   }
 

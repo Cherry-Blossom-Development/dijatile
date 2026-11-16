@@ -77,5 +77,7 @@ inline const char *demeanourName(Demeanour d) {
 }
 
 enum class LifeMode : uint8_t { Gentle, Classic };
+// What a new egg will be: rolled (and inherited) as usual, or always land or water.
+enum class PetType : uint8_t { Surprise, Land, Water };
 
 }  // namespace pet

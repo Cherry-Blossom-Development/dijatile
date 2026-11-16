@@ -218,12 +218,16 @@ bool setGene(Genome &g, const char *name, float v) {
   if (strcmp(name, "claws") == 0) { g.claws = v != 0; return true; }
   if (strcmp(name, "blush") == 0) { g.blush = v != 0; return true; }
   if (strcmp(name, "aquatic") == 0) {
-    g.aquatic = v != 0;
-    Rng r(g.seed ^ 0xA0A71Cu);
-    applyHabitat(g, r);
+    setHabitat(g, v != 0);
     return true;
   }
   return false;
+}
+
+void setHabitat(Genome &g, bool aquatic) {
+  g.aquatic = aquatic;
+  Rng r(g.seed ^ 0xA0A71Cu);
+  applyHabitat(g, r);
 }
 
 void describeGenome(const Genome &g, void (*line)(const char *, void *), void *ctx) {

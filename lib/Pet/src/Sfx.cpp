@@ -24,7 +24,13 @@ const Note EAT[] = {D(Noise, 900, 700, 50, 150), REST(70), D(Noise, 900, 700, 50
 const Note CHIRP[] = {N(Pulse, 1200, 1800, 70, 110), N(Pulse, 1500, 2200, 60, 100)};
 const Note LAUGH[] = {D(Square, 900, 700, 60, 120), REST(30), D(Square, 950, 720, 60, 120), REST(30),
                       D(Square, 1000, 760, 60, 120), REST(30), D(Square, 1050, 780, 70, 120)};
-const Note PURR[] = {N(Triangle, 90, 110, 220, 160), N(Triangle, 110, 90, 220, 160), N(Triangle, 90, 110, 220, 140)};
+// A rattle of short saw bursts: tiny speakers can't play a low smooth tone, but
+// they do play a saw's overtones.
+#define PURR_IN D(Saw, 130, 115, 40, 150), REST(15)
+#define PURR_OUT D(Saw, 110, 100, 40, 130), REST(15)
+const Note PURR[] = {PURR_IN, PURR_IN, PURR_IN, PURR_IN, PURR_OUT, PURR_OUT, PURR_OUT, PURR_OUT};
+#undef PURR_IN
+#undef PURR_OUT
 const Note YAWN[] = {N(Triangle, 520, 260, 500, 140), N(Triangle, 260, 220, 200, 80)};
 const Note SNORE[] = {N(Noise, 220, 160, 600, 45), REST(900)};
 const Note WAKECRANKY[] = {N(Saw, 300, 200, 200, 120), N(Saw, 260, 170, 260, 120)};

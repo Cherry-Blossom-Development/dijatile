@@ -114,7 +114,7 @@ int PetApp::listCount() const {
     case ListId::Play: return gameCount();
     case ListId::Music: return 2;
     case ListId::Tracks: return music_.tracks > 0 ? music_.tracks : 0;
-    case ListId::Settings: return 8;
+    case ListId::Settings: return 9;
     case ListId::Debug: return 9;
   }
   return 0;
@@ -166,7 +166,11 @@ void PetApp::listLabel(int i, char *label, char *value, bool &enabled) const {
         case 3: snprintf(label, L, "NAME"); snprintf(value, V, "%s", core_.name); break;
         case 4: snprintf(label, L, "BRIGHTNESS"); snprintf(value, V, "%d%%", s.brightness); break;
         case 5: snprintf(label, L, "AUTO-LISTEN"); snprintf(value, V, s.autoListen ? "ON" : "OFF"); break;
-        case 6: snprintf(label, L, "RESET PET"); break;
+        case 6:
+          snprintf(label, L, "PET TYPE");
+          snprintf(value, V, s.petType == PetType::Land ? "LAND" : (s.petType == PetType::Water ? "WATER" : "SURPRISE"));
+          break;
+        case 7: snprintf(label, L, "RESET PET"); break;
         default: snprintf(label, L, "ABOUT TILEPET"); snprintf(value, V, "V1"); break;
       }
       break;
@@ -230,7 +234,12 @@ void PetApp::activateList(int i) {
         case 3: nameFromSeed(host_->random32(), core_.name, NAME_LEN); break;
         case 4: s.brightness = s.brightness >= 100 ? 40 : (s.brightness >= 70 ? 100 : 70); break;
         case 5: s.autoListen = !s.autoListen; break;
-        case 6: confirmStep_ = 0; openScreen(Screen::Confirm); break;
+        case 6:
+          s.petType = s.petType == PetType::Surprise ? PetType::Land
+                      : (s.petType == PetType::Land ? PetType::Water : PetType::Surprise);
+          applyPetType();
+          break;
+        case 7: confirmStep_ = 0; openScreen(Screen::Confirm); break;
         default:
           if (++aboutTaps_ >= 5) {
             aboutTaps_ = 0;
@@ -409,7 +418,7 @@ void PetApp::confirmInput(const InputEvent &e) {
   }
   if (no) {
     openList(ListId::Settings);
-    sel_ = 6;
+    sel_ = 7;
   } else if (yes && ++confirmStep_ >= 2) {
     core_.memorialCount = 0;
     newPet(false);

@@ -21,6 +21,7 @@ struct Settings {
   LifeMode lifeMode = LifeMode::Gentle;
   uint8_t brightness = 100;  // percent
   bool autoListen = false;
+  PetType petType = PetType::Surprise;
 };
 
 enum class Farewell : uint8_t { Stars, RanAway, Died };

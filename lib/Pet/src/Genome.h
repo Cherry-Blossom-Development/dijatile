@@ -62,6 +62,8 @@ int rarity(const Genome &g);
 void nameFromSeed(uint32_t seed, char *out, size_t len);
 // 2-3 words such as "bold, silly, speedy".
 void personalityWords(const Genome &g, char *out, size_t len);
+// Make a pet aquatic or land, fixing its features to match (spec 10.6.2).
+void setHabitat(Genome &g, bool aquatic);
 // Set a gene by name from the console ("eyes 3"). False if unknown.
 bool setGene(Genome &g, const char *name, float value);
 // Print all genes, one "name=value" per call of `line`.

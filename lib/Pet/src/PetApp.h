@@ -55,6 +55,9 @@ class PetApp {
 
   // lifecycle
   void newPet(bool inherit, uint32_t seed = 0);
+  // Force the genome's habitat to settings.petType (Surprise leaves it). Only
+  // an unhatched egg changes; a hatched pet keeps the habitat it has.
+  void applyPetType();
   void load();
   void applySave(const SaveData &s);
   void fillSave(SaveData &s);

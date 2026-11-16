@@ -722,6 +722,26 @@ void test_an_aquatic_pet_swims() {
   TEST_ASSERT_TRUE(app.core().world.water());
 }
 
+void test_pet_type_setting() {
+  static FakeHost host;
+  static PetApp app;
+  host.seed = 33;
+  app.begin(&host);
+  app.onResume();
+  for (int i = 0; i < 4; i++) {  // new eggs follow the setting
+    app.command("pet type water");
+    app.command("pet reroll");
+    TEST_ASSERT_TRUE(app.core().genome.aquatic);
+    TEST_ASSERT_EQUAL(genes::TAIL_FISH, app.core().genome.tail);
+    app.command("pet type land");  // an unhatched egg switches at once
+    TEST_ASSERT_FALSE(app.core().genome.aquatic);
+    TEST_ASSERT_TRUE(app.core().genome.tail != genes::TAIL_FISH);
+  }
+  app.command("pet stage child");
+  app.command("pet type water");  // a hatched pet keeps its habitat
+  TEST_ASSERT_FALSE(app.core().genome.aquatic);
+}
+
 void test_screen_on_usb_and_asleep() {
   static FakeHost host;
   static PetApp app;
@@ -1077,6 +1097,7 @@ int main(int, char **) {
   RUN_TEST(test_bowl_double_size_pet);
   RUN_TEST(test_aquatic_genes);
   RUN_TEST(test_water_swim_and_sink);
+  RUN_TEST(test_pet_type_setting);
   RUN_TEST(test_stats_decay_and_catchup_cap);
   RUN_TEST(test_life_stages_and_demeanour);
   RUN_TEST(test_life_end_of_life_modes);
